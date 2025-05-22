@@ -27,6 +27,15 @@ void printHeader() {
     std::cout << "\033[33mType 'exit' to quit, 'clear' to clear the screen\033[0m" << std::endl;
 }
 
+void clearScreen() {
+#ifdef _WIN32
+    std::system("cls");
+#else
+    std::system("clear");
+#endif
+    printHeader();
+}
+
 auto getTimeStamp() {
     auto now = time_point_cast<seconds>(system_clock::now());
     auto local = zoned_time{ current_zone(), now };
@@ -46,21 +55,13 @@ void drawScreen(std::string processName) {
         std::getline(std::cin, command);
 
         if (command == "exit") {
+            clearScreen();
             std::cout << "Back to main menu." << std::endl;
             break;
         }
         std::cout << "'" << command << "' command is not recognized. Please enter a correct command." << std::endl;
     }
 
-}
-
-void clearScreen() {
-#ifdef _WIN32
-    std::system("cls");
-#else
-    std::system("clear");
-#endif
-    printHeader();
 }
 
 int main() {
@@ -87,12 +88,12 @@ int main() {
             iss >> base >> flag >> processName;
 
             if ((flag == "-s" || flag == "-r") && !processName.empty()) {
+                clearScreen();
                 std::cout << "screen command recognized. Doing something." << std::endl;
                 if (flag == "-s") {
                     drawScreen(processName);
                 }
                 else if (flag == "-r") {
-                    clearScreen();
                     drawScreen(processName);
                 }
             }
