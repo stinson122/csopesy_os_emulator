@@ -37,6 +37,21 @@ void drawScreen(std::string processName) {
     std::cout << "Process: " << processName << std::endl;
     std::cout << "Instruction: 1/100" << std::endl;
     std::cout << std::format("TimeStamp: {:%m/%d/%Y, %I:%M:%S %p}", getTimeStamp()) << std::endl;
+
+    //wait for exit
+    std::string command;
+    while (command != "exit") {
+        std::cout << "Type 'exit' to return to main menu" << std::endl;
+        std::cout << "Enter a command: " << std::flush;
+        std::getline(std::cin, command);
+
+        if (command == "exit") {
+            std::cout << "Back to main menu." << std::endl;
+            break;
+        }
+        std::cout << "'" << command << "' command is not recognized. Please enter a correct command." << std::endl;
+    }
+
 }
 
 void clearScreen() {
@@ -77,6 +92,7 @@ int main() {
                     drawScreen(processName);
                 }
                 else if (flag == "-r") {
+                    clearScreen();
                     drawScreen(processName);
                 }
             }
