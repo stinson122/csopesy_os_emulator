@@ -14,9 +14,9 @@ public:
     Process(const std::string& name, int total_instructions);
     ~Process();
 
-    void logPrint(const std::string& message, int core, 
-                 const std::chrono::system_clock::time_point& time);
-    
+    void logPrint(const std::string& message, int core,
+        const std::chrono::system_clock::time_point& time);
+
     std::string name;
     int total_instructions;
     std::atomic<int> remaining_instructions;

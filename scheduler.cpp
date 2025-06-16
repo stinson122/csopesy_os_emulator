@@ -5,9 +5,9 @@
 #include <fstream>
 #include <random>
 
-Scheduler::Scheduler(int num_cores) 
-    : num_cores(num_cores), cores(num_cores, nullptr), 
-      stop_requested(false), is_running(false) {}
+Scheduler::Scheduler(int num_cores)
+    : num_cores(num_cores), cores(num_cores, nullptr),
+    stop_requested(false), is_running(false) {}
 
 Scheduler::~Scheduler() {
     stop();
@@ -78,7 +78,7 @@ int Scheduler::getQueueSize() {
 }
 
 std::string Scheduler::formatTimePoint(const std::chrono::system_clock::time_point& tp) {
-    auto zt = std::chrono::zoned_time{ std::chrono::current_zone(), 
+    auto zt = std::chrono::zoned_time{ std::chrono::current_zone(),
         std::chrono::time_point_cast<std::chrono::seconds>(tp) };
     return std::format("{:%m/%d/%Y %I:%M:%S%p}", zt);
 }
@@ -86,14 +86,15 @@ std::string Scheduler::formatTimePoint(const std::chrono::system_clock::time_poi
 void Scheduler::printStatus(bool toFile) {
     std::ostream* out;
     std::ofstream file_out;
-    
+
     if (toFile) {
         file_out.open("csopesy-log.txt");
         out = &file_out;
-    } else {
+    }
+    else {
         out = &std::cout;
     }
-    
+
     *out << "--------------------------------------" << std::endl;
     *out << "Active Cores: " << getActiveCores() << std::endl;
     *out << "Cores Available: " << (num_cores - getActiveCores()) << std::endl;
@@ -107,10 +108,10 @@ void Scheduler::printStatus(bool toFile) {
             if (cores[i]) {
                 Process* p = cores[i];
                 int done = p->total_instructions - p->remaining_instructions.load();
-                *out << p->name << "     (" 
-                     << formatTimePoint(p->start_time)
-                     << ")     Core: " << i << "     " 
-                     << done << " / " << p->total_instructions << std::endl;
+                *out << p->name << "     ("
+                    << formatTimePoint(p->start_time)
+                    << ")     Core: " << i << "     "
+                    << done << " / " << p->total_instructions << std::endl;
             }
         }
     }
@@ -118,13 +119,13 @@ void Scheduler::printStatus(bool toFile) {
     *out << "\nFinished processes:" << std::endl;
     std::lock_guard<std::mutex> lock(finished_mutex);
     for (Process* p : finished_processes) {
-        *out << p->name << "     (" 
-             << formatTimePoint(p->start_time)
-             << ")     Finished     " 
-             << p->total_instructions << " / " << p->total_instructions << std::endl;
+        *out << p->name << "     ("
+            << formatTimePoint(p->start_time)
+            << ")     Finished     "
+            << p->total_instructions << " / " << p->total_instructions << std::endl;
     }
     *out << "--------------------------------------" << std::endl;
-    
+
     if (toFile) {
         file_out.close();
     }
@@ -150,14 +151,14 @@ void Scheduler::batchWorker() {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
-    
+
     while (!stop_batch) {
         // Generate a new process
         std::string name = "p" + std::to_string(process_counter++);
         uint64_t instructions = dist(gen);
         Process* p = new Process(name, instructions);
         addProcess(p);
-        
+
         // Sleep for batch frequency (simulated)
         for (uint64_t i = 0; i < batch_frequency && !stop_batch; i++) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -203,25 +204,52 @@ void Scheduler::worker(int core_id) {
             p = cores[core_id];
         }
         if (p) {
-            // Simulate delay
-            for (uint64_t i = 0; i < delay_per_exec; i++) {
-                if (stop_requested) break;
-                std::this_thread::sleep_for(std::chrono::microseconds(1));
-            }
+            uint64_t executed = 0;
+            // Load atomic value first to avoid type ambiguity
+            int remaining_instructions = p->remaining_instructions.load();
+            uint64_t to_execute = (scheduler_type == "rr") ? 
+                quantum_cycles : remaining_instructions;
+            to_execute = std::min(to_execute, static_cast<uint64_t>(remaining_instructions));
             
-            p->remaining_instructions--;
+            for (uint64_t i = 0; i < to_execute && !stop_requested; i++) {
+                // Simulate delay
+                if (delay_per_exec > 0) {
+                    uint64_t remaining_delay = delay_per_exec;
+                    while (remaining_delay > 0 && !stop_requested) {
+                        uint64_t chunk = std::min(remaining_delay, static_cast<uint64_t>(1000));
+                        std::this_thread::sleep_for(std::chrono::microseconds(chunk));
+                        remaining_delay -= chunk;
+                    }
+                    if (stop_requested) break;
+                }
 
-            if (p->remaining_instructions <= 0) {
-                p->state = ProcessState::Finished;
-                p->end_time = std::chrono::system_clock::now();
-                {
-                    std::lock_guard<std::mutex> lock(finished_mutex);
-                    finished_processes.push_back(p);
+                p->remaining_instructions--;
+                executed++;
+
+                if (p->remaining_instructions.load() <= 0) {
+                    p->state = ProcessState::Finished;
+                    p->end_time = std::chrono::system_clock::now();
+                    {
+                        std::lock_guard<std::mutex> lock(finished_mutex);
+                        finished_processes.push_back(p);
+                    }
+                    break;
                 }
+            }
+
+            // Handle preemption for round-robin
+            if (scheduler_type == "rr" && p->remaining_instructions.load() > 0) {
                 {
-                    std::lock_guard<std::mutex> lock(cores_mutex);
-                    cores[core_id] = nullptr;
+                    std::lock_guard<std::mutex> lock(queue_mutex);
+                    process_queue.push(p);
                 }
+                p->state = ProcessState::Waiting;
+            }
+
+            // Clear the core
+            {
+                std::lock_guard<std::mutex> lock(cores_mutex);
+                cores[core_id] = nullptr;
             }
         }
         else {
