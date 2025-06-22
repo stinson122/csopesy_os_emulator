@@ -1,4 +1,5 @@
 #include "process.h"
+#include <cstdint>
 #include <iomanip>
 #include <chrono>
 #include <format>
@@ -19,6 +20,7 @@ void Process::generateRandomInstructions() {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<uint16_t> value_dist(0, 100);
+    std::uniform_int_distribution<uint16_t> value_dist_uint8(0, 100);
     std::uniform_int_distribution<int> op_dist(0, 5);
 
     for (int i = 0; i < total_instructions; i++) {
@@ -47,7 +49,7 @@ void Process::generateRandomInstructions() {
             break;
         case 4: // SLEEP
             instr.type = "SLEEP";
-            instr.operands.push_back(static_cast<uint16_t>(value_dist(gen) % 10 + 1));
+            instr.operands.push_back(static_cast<uint8_t>(value_dist_uint8(gen) % 10 + 1));
             break;
         case 5: // FOR
             instr.type = "FOR";
@@ -77,48 +79,75 @@ bool Process::executeNextInstruction(int core_id) {
 
     auto& instr = instructions[current_instruction++];
 
-    try {
+    // remove temp test prints before final
+    // note: best to test with only 1 process running, use screen -s
+    auto executeInstruction = [&](const Instruction& instr, uint16_t loop_count = 0) {
         if (instr.type == "PRINT") {
             std::string message = std::get<std::string>(instr.operands[0]);
-            logPrint(message, core_id, std::chrono::system_clock::now());
+            if (loop_count > 0) { //remove number printed at end before final
+                logPrint(message + " " + std::to_string(loop_count),
+                    core_id, std::chrono::system_clock::now());
+            } else {
+                logPrint(message, core_id, std::chrono::system_clock::now());
+            }
         }
         else if (instr.type == "DECLARE") {
             std::string var = std::get<std::string>(instr.operands[0]);
             uint16_t value = std::get<uint16_t>(instr.operands[1]);
             declareVariable(var, value);
+            /*Temp Test Print
+            std::cout << "DECLARE" << std::endl;
+            std::cout << std::get<std::string>(instr.operands[0]) << "=" << std::get<std::uint16_t>(instr.operands[1]) << std::endl;
+            std::cout << var << "=" << value << std::endl;*/
         }
         else if (instr.type == "ADD") {
             std::string dest = std::get<std::string>(instr.operands[0]);
             uint16_t op1 = getOperandValue(instr.operands[1]);
             uint16_t op2 = getOperandValue(instr.operands[2]);
             declareVariable(dest, op1 + op2);
+            /*Temp Test Print
+            std::cout << "ADD" << std::endl;
+            std::cout << getOperandValue(instr.operands[1]) << "+" << getOperandValue(instr.operands[2]) << ":" << getOperandValue(instr.operands[0]) << std::endl;
+            std::cout << op1 << "+" << op2 << "=" << getOperandValue(instr.operands[0]) << std::endl;*/
         }
         else if (instr.type == "SUBTRACT") {
             std::string dest = std::get<std::string>(instr.operands[0]);
             uint16_t op1 = getOperandValue(instr.operands[1]);
             uint16_t op2 = getOperandValue(instr.operands[2]);
             declareVariable(dest, std::max(0, static_cast<int>(op1 - op2)));
+            /*Temp Test Print
+            std::cout << "SUB" << std::endl;
+            std::cout << getOperandValue(instr.operands[1]) << "-" << getOperandValue(instr.operands[2]) << ":" << getOperandValue(instr.operands[0]) << std::endl;
+            std::cout << op1 << "-" << op2 << "=" << getOperandValue(instr.operands[0]) << std::endl;*/
         }
         else if (instr.type == "SLEEP") {
-            uint16_t ticks = std::get<uint16_t>(instr.operands[0]);
+            uint8_t ticks = static_cast<uint8_t>(std::get<uint16_t>(instr.operands[0]));
             sleep_until = cpu_cycles + ticks;
+            /*Temp Test Print
+            std::cout << "SLEEP for " << static_cast<int>(ticks) << std::endl;
+            return true; //true for sleep */
         }
-        else if (instr.type == "FOR") {
+        return false;
+    };
+
+    try {
+        if (executeInstruction(instr)) {
+            return false; // stop if sleep
+        }
+
+        if (instr.type == "FOR") {
             uint16_t repeats = std::get<uint16_t>(instr.operands[0]);
-            // Save current instruction pointer
             size_t loop_start = current_instruction;
             for (uint16_t i = 0; i < repeats; i++) {
-                // Execute the loop body
                 current_instruction = loop_start;
                 if (current_instruction >= instructions.size()) break;
+                /*Temp Test Print
+                std::cout << "FOR " << (i+1) << ": " << instructions[current_instruction++].type << std::endl;*/
 
                 auto& nested_instr = instructions[current_instruction++];
-                if (nested_instr.type == "PRINT") {
-                    std::string message = std::get<std::string>(nested_instr.operands[0]);
-                    logPrint(message + " " + std::to_string(i + 1),
-                        core_id, std::chrono::system_clock::now());
+                if (executeInstruction(nested_instr, i + 1)) {
+                    break; // exit if sleep
                 }
-                // Add handling for other instruction types in the loop body
             }
         }
     }
@@ -141,6 +170,8 @@ uint16_t Process::getOperandValue(const Value& operand) const {
 
 void Process::declareVariable(const std::string& name, uint16_t value) {
     variables[name] = std::min(value, static_cast<uint16_t>(65535));
+    /*Temp Test Print
+    std::cout << "Variable declared to: " << name << "=" << value << std::endl;*/
 }
 
 uint16_t Process::getVariableValue(const std::string& name) const {
@@ -166,7 +197,12 @@ void Process::logPrint(const std::string& message, int core,
     openLogFile();
     auto zt = std::chrono::zoned_time{ std::chrono::current_zone(),
         std::chrono::time_point_cast<std::chrono::seconds>(time) };
-    log_file << "(" << std::format("{:%m/%d/%Y %I:%M:%S%p}", zt)
-        << ") Core:" << core << " \"" << message << "\"\n";
+    std::string log_line = "(" + std::format("{:%m/%d/%Y %I:%M:%S%p}", zt) + 
+        ") Core:" + std::to_string(core) + " \"" + message + "\"\n";
+    
+    log_file << log_line;
     log_file.flush();
+    if (log_callback) {
+        log_callback(log_line);
+    }
 }

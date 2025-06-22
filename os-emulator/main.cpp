@@ -10,6 +10,8 @@
 #include <random>
 #include <atomic>
 #include <filesystem>
+#include <iomanip>
+#include <ctime>
 
 #ifdef _WIN32
 #include <direct.h>   // for _getcwd
@@ -51,18 +53,6 @@ Config readConfig(const std::string& filename, const std::filesystem::path& exe_
     // ADD THIS LINE: Declare the 'line' variable
     std::string line;  // <-- This is the missing declaration
     // Read the config file line by line
-
-    // If not found, try executable directory
-    if (!file.is_open()) {
-        std::filesystem::path full_path = exe_dir / filename;
-        file.open(full_path);
-        if (!file.is_open()) {
-            std::cerr << "Error: Could not open config file: " << filename << std::endl;
-            std::cerr << "Tried locations:\n1. " << std::filesystem::absolute(filename)
-                << "\n2. " << full_path << std::endl;
-            return config;
-        }
-    }
 
     while (std::getline(file, line)) {
         std::istringstream iss(line);
@@ -117,6 +107,62 @@ void processSMI(Process* p) {
 
     if (p->state == ProcessState::Finished) {
         std::cout << "Finished!" << std::endl;
+    }
+}
+
+void viewProcessScreen(const std::string& processName)
+{
+    std::string logFileName = processName + ".log";
+    std::ifstream logFile(logFileName);
+    
+    if (!logFile.is_open()) {
+        std::cout << "Process " << processName << " not found. Type 'exit' to return to main menu." << std::endl;
+        return;
+    }
+    // Print statements already in log
+    std::vector<std::string> logLines;
+    std::string line;
+    while (std::getline(logFile, line)) {
+        logLines.push_back(line);
+    }
+    logFile.close();
+
+    Process* p = scheduler->getProcess(processName);
+    if (!p) {
+        std::cout << "Process not found." << std::endl;
+        return;
+    }
+
+    p->log_callback = [&](const std::string& message) {
+        logLines.push_back(message);
+        //Re-print for every callback
+        clearScreen();
+        for (const auto& logLine : logLines) {
+            std::cout << logLine << (logLine.back() == '\n' ? "" : "\n");
+        }
+        std::cout << "Type 'exit' to return to main menu" << std::endl;
+        std::cout << "Enter a command: " << std::flush;
+    };
+
+    std::string command;
+    while (true) {
+        for (const auto& logLine : logLines) {
+            std::cout << logLine << (logLine.back() == '\n' ? "" : "\n");
+        }
+
+        std::cout << "Type 'exit' to return to main menu" << std::endl;
+        std::cout << "Enter a command: " << std::flush;
+        
+        std::getline(std::cin, command);
+        if (command == "exit") {
+            p->log_callback = nullptr;
+            clearScreen();
+            std::cout << "Back to main menu." << std::endl;
+            break;
+        }
+        else {
+            std::cout << "'" << command << "' command is not recognized. Please enter a correct command." << std::endl;
+        }
     }
 }
 
@@ -277,7 +323,12 @@ int main(int argc, char* argv[]) {
 
                     clearScreen();
                     std::cout << "Displaying process: " << processName << std::endl;
-                    drawScreen(processName);
+                    
+                    if (flag == "-s") {
+                        drawScreen(processName);
+                    } else if (flag == "-r") {
+                        viewProcessScreen(processName);
+                    }
                 }
                 else {
                     std::cout << "Invalid screen command. Usage: screen -s|-r <name> or screen -ls" << std::endl;
@@ -298,6 +349,7 @@ int main(int argc, char* argv[]) {
                 std::cout << "Please run 'initialize' first." << std::endl;
             }
             else {
+                //this wasnt working on my end, but scheduler->stop() worked - Audrey
                 scheduler->stopBatchProcess();
                 std::cout << "Scheduler stopped generating processes." << std::endl;
             }
