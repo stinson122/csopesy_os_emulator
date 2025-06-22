@@ -11,7 +11,7 @@ Process::Process(const std::string& name, int total_instructions)
     : name(name), total_instructions(total_instructions),
     remaining_instructions(total_instructions),
     state(ProcessState::Waiting), core_id(-1),
-    start_time(std::chrono::system_clock::now()),
+    //start_time(std::chrono::system_clock::now()),
     log_file_name(name + ".log") {
     generateRandomInstructions();
 }

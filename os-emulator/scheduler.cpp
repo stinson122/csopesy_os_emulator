@@ -120,7 +120,7 @@ void Scheduler::printStatus(bool toFile) {
     std::lock_guard<std::mutex> lock(finished_mutex);
     for (Process* p : finished_processes) {
         *out << p->name << "     ("
-            << formatTimePoint(p->start_time)
+            << formatTimePoint(p->end_time)
             << ")     Finished     "
             << p->total_instructions << " / " << p->total_instructions << std::endl;
     }
@@ -183,6 +183,9 @@ void Scheduler::schedule() {
                         cores[i] = p;
                         p->state = ProcessState::Running;
                         p->core_id = i;
+                        if (p->start_time.time_since_epoch().count() == 0) {
+                            p->start_time = std::chrono::system_clock::now();
+                        }
                         assigned = true;
                         break;
                     }
