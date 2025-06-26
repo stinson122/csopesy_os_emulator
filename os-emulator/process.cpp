@@ -13,7 +13,68 @@ Process::Process(const std::string& name, int total_instructions)
     state(ProcessState::Waiting), core_id(-1),
     //start_time(std::chrono::system_clock::now()),
     log_file_name(name + ".log") {
-    generateRandomInstructions();
+    //generateRandomInstructions();
+
+    declareVariable("x", 0);
+    declareVariable("y", 0);
+    declareVariable("z", 0);
+    generateXYZInstructions();
+}
+
+void Process::generateXYZInstructions() {
+    Instruction forLoop;
+    forLoop.type = "FOR";
+    forLoop.operands.push_back(static_cast<uint16_t>(100));
+    instructions.push_back(forLoop);
+
+    // Create the body of the FOR loop
+    // ADD (x, x, 1)
+    Instruction addX;
+    addX.type = "ADD";
+    addX.operands.push_back("x");
+    addX.operands.push_back("x");
+    addX.operands.push_back(static_cast<uint16_t>(1));
+    instructions.push_back(addX);
+
+    // PRINT("Value from: " + x)
+    Instruction printX;
+    printX.type = "PRINT";
+    printX.operands.push_back("Hello from: ");
+    printX.operands.push_back("x");
+
+    instructions.push_back(printX);
+
+    // ADD (y, y, 1)
+    Instruction addY;
+    addY.type = "ADD";
+    addY.operands.push_back("y");
+    addY.operands.push_back("y");
+    addY.operands.push_back(static_cast<uint16_t>(1));
+    instructions.push_back(addY);
+
+    // PRINT("Value from: " + y)
+    Instruction printY;
+    printY.type = "PRINT";
+    printY.operands.push_back("Hello from: ");
+    printY.operands.push_back("y");
+
+    instructions.push_back(printY);
+
+    // ADD (z, z, 1)
+    Instruction addZ;
+    addZ.type = "ADD";
+    addZ.operands.push_back("z");
+    addZ.operands.push_back("z");
+    addZ.operands.push_back(static_cast<uint16_t>(1));
+    instructions.push_back(addZ);
+
+    // PRINT("Value from: " + z)
+    Instruction printZ;
+    printZ.type = "PRINT";
+    printZ.operands.push_back("Hello from: ");
+    printZ.operands.push_back("z");
+
+    instructions.push_back(printZ);
 }
 
 void Process::generateRandomInstructions() {
@@ -83,7 +144,8 @@ bool Process::executeNextInstruction(int core_id) {
     // note: best to test with only 1 process running, use screen -s
     auto executeInstruction = [&](const Instruction& instr, uint16_t loop_count = 0) {
         if (instr.type == "PRINT") {
-            std::string message = std::get<std::string>(instr.operands[0]);
+            uint16_t value = getVariableValue(std::get<std::string>(instr.operands[1]));
+            std::string message = std::get<std::string>(instr.operands[0]) + std::to_string(value);
             if (loop_count > 0) { //remove number printed at end before final
                 logPrint(message + " " + std::to_string(loop_count),
                     core_id, std::chrono::system_clock::now());
@@ -107,7 +169,7 @@ bool Process::executeNextInstruction(int core_id) {
             declareVariable(dest, op1 + op2);
             /*Temp Test Print
             std::cout << "ADD" << std::endl;
-            std::cout << getOperandValue(instr.operands[1]) << "+" << getOperandValue(instr.operands[2]) << ":" << getOperandValue(instr.operands[0]) << std::endl;
+            std::cout << getOperandValue(instr.operands[1]) << "+" << getOperandValue(instr.operands[2]) << "=" << getOperandValue(instr.operands[0]) << std::endl;
             std::cout << op1 << "+" << op2 << "=" << getOperandValue(instr.operands[0]) << std::endl;*/
         }
         else if (instr.type == "SUBTRACT") {
@@ -127,8 +189,8 @@ bool Process::executeNextInstruction(int core_id) {
             std::cout << "SLEEP for " << static_cast<int>(ticks) << std::endl;
             return true; //true for sleep */
         }
-        return false;
-    };
+            return false;
+        };
 
     try {
         if (executeInstruction(instr)) {
@@ -138,15 +200,28 @@ bool Process::executeNextInstruction(int core_id) {
         if (instr.type == "FOR") {
             uint16_t repeats = std::get<uint16_t>(instr.operands[0]);
             size_t loop_start = current_instruction;
+            
             for (uint16_t i = 0; i < repeats; i++) {
                 current_instruction = loop_start;
-                if (current_instruction >= instructions.size()) break;
-                /*Temp Test Print
-                std::cout << "FOR " << (i+1) << ": " << instructions[current_instruction++].type << std::endl;*/
-
-                auto& nested_instr = instructions[current_instruction++];
-                if (executeInstruction(nested_instr, i + 1)) {
-                    break; // exit if sleep
+                // Execute all 6 instructions
+                for (size_t j = 0; j < 6; j++) {
+                    if (current_instruction >= instructions.size()) break;
+                    auto& nested_instr = instructions[current_instruction];
+                    
+                    if (nested_instr.type == "ADD") {
+                        std::string dest = std::get<std::string>(nested_instr.operands[0]);
+                        uint16_t op1 = getOperandValue(nested_instr.operands[1]);
+                        uint16_t op2 = getOperandValue(nested_instr.operands[2]);
+                        declareVariable(dest, op1 + op2);
+                    }
+                    else if (nested_instr.type == "PRINT") {
+                        std::string var = std::get<std::string>(nested_instr.operands[1]);
+                        uint16_t value = getVariableValue(var);
+                        std::string message = std::get<std::string>(nested_instr.operands[0]) + std::to_string(value);
+                        logPrint(message + " " + std::to_string(i + 1), core_id, std::chrono::system_clock::now());
+                    }
+                    current_instruction++;
+                    remaining_instructions--;
                 }
             }
         }
@@ -197,9 +272,9 @@ void Process::logPrint(const std::string& message, int core,
     openLogFile();
     auto zt = std::chrono::zoned_time{ std::chrono::current_zone(),
         std::chrono::time_point_cast<std::chrono::seconds>(time) };
-    std::string log_line = "(" + std::format("{:%m/%d/%Y %I:%M:%S%p}", zt) + 
+    std::string log_line = "(" + std::format("{:%m/%d/%Y %I:%M:%S%p}", zt) +
         ") Core:" + std::to_string(core) + " \"" + message + "\"\n";
-    
+
     log_file << log_line;
     log_file.flush();
     if (log_callback) {

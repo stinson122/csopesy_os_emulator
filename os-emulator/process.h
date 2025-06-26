@@ -27,6 +27,7 @@ public:
 
     // Instruction execution
     bool executeNextInstruction(int core_id);
+    void generateXYZInstructions();
     void generateRandomInstructions();
 
     // Variable operations
