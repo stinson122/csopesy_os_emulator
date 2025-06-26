@@ -22,6 +22,7 @@ void Scheduler::start() {
     if (is_running) return;
     stop_requested = false;
     is_running = true;
+    quantum_counters.resize(num_cores, 0);
     scheduler_thread = std::thread(&Scheduler::schedule, this);
     for (int i = 0; i < num_cores; i++) {
         workers.push_back(std::thread(&Scheduler::worker, this, i));
@@ -183,6 +184,7 @@ void Scheduler::schedule() {
                         cores[i] = p;
                         p->state = ProcessState::Running;
                         p->core_id = i;
+                        quantum_counters[i] = 0;
                         if (p->start_time.time_since_epoch().count() == 0) {
                             p->start_time = std::chrono::system_clock::now();
                         }
@@ -202,36 +204,59 @@ void Scheduler::schedule() {
 void Scheduler::worker(int core_id) {
     while (!stop_requested) {
         Process* p = nullptr;
+
+        // Check if core has a process assigned
         {
             std::lock_guard<std::mutex> lock(cores_mutex);
             p = cores[core_id];
         }
 
         if (p) {
-            // Check if process is sleeping using the public method
+            // If process is sleeping, wait
             if (p->isSleeping()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
 
+            p->state = ProcessState::Running;
+
+            // Execute one instruction
             if (p->executeNextInstruction(core_id)) {
                 // Process finished
-                std::lock_guard<std::mutex> lock(finished_mutex);
-                finished_processes.push_back(p);
-                std::lock_guard<std::mutex> core_lock(cores_mutex);
-                cores[core_id] = nullptr;
+                p->state = ProcessState::Finished;
+                {
+                    std::lock_guard<std::mutex> lock(finished_mutex);
+                    finished_processes.push_back(p);
+                }
+                {
+                    std::lock_guard<std::mutex> lock(cores_mutex);
+                    cores[core_id] = nullptr;
+                }
+                quantum_counters[core_id] = 0; // Reset counter
                 continue;
             }
 
-            // Handle preemption for round-robin
+            // Round Robin preemption check
             if (scheduler_type == "rr") {
-                std::lock_guard<std::mutex> lock(queue_mutex);
-                process_queue.push(p);
-                p->state = ProcessState::Waiting;
-                std::lock_guard<std::mutex> core_lock(cores_mutex);
-                cores[core_id] = nullptr;
+                quantum_counters[core_id]++;
+
+                if (quantum_counters[core_id] >= quantum_cycles) {
+                    // Preempt process
+                    {
+                        std::lock_guard<std::mutex> lock(queue_mutex);
+                        process_queue.push(p);
+                        p->state = ProcessState::Waiting;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lock(cores_mutex);
+                        cores[core_id] = nullptr;
+                    }
+                    quantum_counters[core_id] = 0; // Reset counter
+                }
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
 }

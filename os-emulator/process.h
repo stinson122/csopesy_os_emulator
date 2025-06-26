@@ -16,6 +16,7 @@ enum class ProcessState { Waiting, Running, Finished };
 using Value = std::variant<uint16_t, std::string>;
 
 extern std::atomic<uint64_t> cpu_cycles;
+extern std::atomic<uint64_t> quantum_counter;
 
 class Process {
 public:

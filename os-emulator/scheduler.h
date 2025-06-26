@@ -26,6 +26,7 @@ public:
     int getActiveCores();
     int getQueueSize();
     void printStatus(bool toFile = false);
+    std::vector<uint64_t> quantum_counters;
 
     static std::string formatTimePoint(const std::chrono::system_clock::time_point& tp);
 

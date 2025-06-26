@@ -22,6 +22,7 @@
 Scheduler* scheduler = nullptr;
 bool initialized = false;
 std::atomic<uint64_t> cpu_cycles(0);
+std::atomic<uint64_t> quantum_counter(0);
 
 struct Config {
     int num_cpu = 4;

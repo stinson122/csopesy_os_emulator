@@ -13,6 +13,7 @@ Process::Process(const std::string& name, int total_instructions)
     state(ProcessState::Waiting), core_id(-1),
     //start_time(std::chrono::system_clock::now()),
     log_file_name(name + ".log") {
+    quantum_counter = 0;
     generateRandomInstructions();
 }
 
