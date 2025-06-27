@@ -1,4 +1,2 @@
-﻿  scheduler.cpp
-C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\scheduler.cpp(79,30): warning C4267: 'return': conversion from 'size_t' to 'int', possible loss of data
-C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\scheduler.cpp(165,40): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
-  os-emulator.vcxproj -> C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\x64\Debug\os-emulator.exe
+﻿  process.cpp
+  os-emulator.vcxproj -> C:\Users\dell\OneDrive\Documents\GitHub\csopesy\csopesy_os_emulator\os-emulator\x64\Debug\os-emulator.exe

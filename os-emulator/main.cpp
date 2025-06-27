@@ -171,7 +171,7 @@ void drawScreen(std::string processName) {
 
     std::string command;
     while (true) {
-        std::cout << "Type 'exit' to return to main menu, 'process-smi' for info, or 'print' to log" << std::endl;
+        std::cout << "Type 'exit' to return to main menu, 'process-smi' for info" << std::endl;
         std::cout << "Enter a command: " << std::flush;
         std::getline(std::cin, command);
 
@@ -183,23 +183,6 @@ void drawScreen(std::string processName) {
         else if (command == "process-smi") {
             if (p) {
                 processSMI(p);
-            }
-            else {
-                std::cout << "Process not found." << std::endl;
-            }
-        }
-        else if (command == "print") {
-            if (p) {
-                if (p->state == ProcessState::Running) {
-                    // Use the required message format
-                    std::string message = "Hello world from " + p->name + "!";
-                    auto now = std::chrono::system_clock::now();
-                    p->logPrint(message, p->core_id.load(), now);
-                    std::cout << "Message logged to " << p->name << ".log" << std::endl;
-                }
-                else {
-                    std::cout << "Cannot print: process not running." << std::endl;
-                }
             }
             else {
                 std::cout << "Process not found." << std::endl;
@@ -339,7 +322,6 @@ int main(int argc, char* argv[]) {
                 std::cout << "Please run 'initialize' first." << std::endl;
             }
             else {
-                //this wasnt working on my end, but scheduler->stop() worked - Audrey
                 scheduler->stopBatchProcess();
                 std::cout << "Scheduler stopped generating processes." << std::endl;
             }

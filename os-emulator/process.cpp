@@ -81,17 +81,11 @@ bool Process::executeNextInstruction(int core_id) {
 
     auto& instr = instructions[current_instruction++];
 
-    // remove temp test prints before final
     // note: best to test with only 1 process running, use screen -s
-    auto executeInstruction = [&](const Instruction& instr, uint16_t loop_count = 0) {
+    auto executeInstruction = [&](const Instruction& instr) {
         if (instr.type == "PRINT") {
             std::string message = std::get<std::string>(instr.operands[0]);
-            if (loop_count > 0) { //remove number printed at end before final
-                logPrint(message + " " + std::to_string(loop_count),
-                    core_id, std::chrono::system_clock::now());
-            } else {
-                logPrint(message, core_id, std::chrono::system_clock::now());
-            }
+            logPrint(message, core_id, std::chrono::system_clock::now());
         }
         else if (instr.type == "DECLARE") {
             std::string var = std::get<std::string>(instr.operands[0]);
@@ -147,7 +141,7 @@ bool Process::executeNextInstruction(int core_id) {
                 std::cout << "FOR " << (i+1) << ": " << instructions[current_instruction++].type << std::endl;*/
 
                 auto& nested_instr = instructions[current_instruction++];
-                if (executeInstruction(nested_instr, i + 1)) {
+                if (executeInstruction(nested_instr)) {
                     break; // exit if sleep
                 }
             }
