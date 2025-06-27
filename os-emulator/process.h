@@ -21,10 +21,11 @@ extern std::atomic<uint64_t> quantum_counter;
 class Process {
 public:
     Process(const std::string& name, int total_instructions);
-    ~Process();
+    //~Process();
 
     void logPrint(const std::string& message, int core,
         const std::chrono::system_clock::time_point& time);
+    std::vector<std::string> getLogMessages();
 
     // Instruction execution
     bool executeNextInstruction(int core_id);
@@ -51,8 +52,7 @@ private:
         std::vector<Value> operands;
     };
 
-    std::ofstream log_file;
-    std::string log_file_name;
+    std::vector<std::string> log_messages;
     std::mutex log_mutex;
 
     // Process memory and instructions
@@ -61,7 +61,7 @@ private:
     std::atomic<size_t> current_instruction{ 0 };
     std::atomic<uint64_t> sleep_until{ 0 };
 
-    void openLogFile();
+    //void openLogFile();
     uint16_t getOperandValue(const Value& operand) const;
 };
 #endif // PROCESS_H

@@ -113,26 +113,14 @@ void processSMI(Process* p) {
 
 void viewProcessScreen(const std::string& processName)
 {
-    std::string logFileName = processName + ".log";
-    std::ifstream logFile(logFileName);
-    
-    if (!logFile.is_open()) {
+    Process* p = scheduler->getProcess(processName);
+    if (!p) {
         std::cout << "Process " << processName << " not found. Type 'exit' to return to main menu." << std::endl;
         return;
     }
-    // Print statements already in log
-    std::vector<std::string> logLines;
-    std::string line;
-    while (std::getline(logFile, line)) {
-        logLines.push_back(line);
-    }
-    logFile.close();
 
-    Process* p = scheduler->getProcess(processName);
-    if (!p) {
-        std::cout << "Process not found." << std::endl;
-        return;
-    }
+    // Get log messages from process instead of file
+    std::vector<std::string> logLines = p->getLogMessages();
 
     p->log_callback = [&](const std::string& message) {
         logLines.push_back(message);
@@ -143,17 +131,18 @@ void viewProcessScreen(const std::string& processName)
         }
         std::cout << "Type 'exit' to return to main menu" << std::endl;
         std::cout << "Enter a command: " << std::flush;
-    };
+        };
 
     std::string command;
     while (true) {
+        clearScreen();
         for (const auto& logLine : logLines) {
             std::cout << logLine << (logLine.back() == '\n' ? "" : "\n");
         }
 
         std::cout << "Type 'exit' to return to main menu" << std::endl;
         std::cout << "Enter a command: " << std::flush;
-        
+
         std::getline(std::cin, command);
         if (command == "exit") {
             p->log_callback = nullptr;

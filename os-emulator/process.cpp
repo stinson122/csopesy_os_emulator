@@ -10,9 +10,10 @@
 Process::Process(const std::string& name, int total_instructions)
     : name(name), total_instructions(total_instructions),
     remaining_instructions(total_instructions),
-    state(ProcessState::Waiting), core_id(-1),
+    state(ProcessState::Waiting), core_id(-1)
     //start_time(std::chrono::system_clock::now()),
-    log_file_name(name + ".log") {
+    //log_file_name(name + ".log") 
+{
     quantum_counter = 0;
     generateRandomInstructions();
 }
@@ -179,7 +180,7 @@ uint16_t Process::getVariableValue(const std::string& name) const {
     auto it = variables.find(name);
     return it != variables.end() ? it->second : 0;
 }
-
+/*
 Process::~Process() {
     if (log_file.is_open()) {
         log_file.close();
@@ -191,19 +192,26 @@ void Process::openLogFile() {
         log_file.open(log_file_name, std::ios::app);
     }
 }
-
+*/
 void Process::logPrint(const std::string& message, int core,
-    const std::chrono::system_clock::time_point& time) {
+    const std::chrono::system_clock::time_point& time)
+{
     std::lock_guard<std::mutex> lock(log_mutex);
-    openLogFile();
     auto zt = std::chrono::zoned_time{ std::chrono::current_zone(),
         std::chrono::time_point_cast<std::chrono::seconds>(time) };
-    std::string log_line = "(" + std::format("{:%m/%d/%Y %I:%M:%S%p}", zt) + 
+    std::string log_line = "(" + std::format("{:%m/%d/%Y %I:%M:%S%p}", zt) +
         ") Core:" + std::to_string(core) + " \"" + message + "\"\n";
-    
-    log_file << log_line;
-    log_file.flush();
+
+    // Store in vector instead of writing to file
+    log_messages.push_back(log_line);
+
+    // Preserve callback functionality
     if (log_callback) {
         log_callback(log_line);
     }
+}
+
+std::vector<std::string> Process::getLogMessages() {
+	std::lock_guard<std::mutex> lock(log_mutex);
+	return log_messages;
 }
