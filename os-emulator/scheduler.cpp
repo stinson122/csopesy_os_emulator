@@ -66,7 +66,8 @@ int Scheduler::getActiveCores() {
     std::lock_guard<std::mutex> lock(cores_mutex);
     int count = 0;
     for (int i = 0; i < num_cores; i++) {
-        if (cores[i] != nullptr) {
+        //if (cores[i] != nullptr) {
+        if (cores[i] != nullptr && cores[i]->state == ProcessState::Running) {
             count++;
         }
     }
@@ -96,7 +97,11 @@ void Scheduler::printStatus(bool toFile) {
         out = &std::cout;
     }
 
+    int active_cores = getActiveCores();
+    float utilization = (static_cast<float>(active_cores) / num_cores) * 100.0f;
+
     *out << "--------------------------------------" << std::endl;
+    *out << "CPU Utilization: " << std::fixed << std::setprecision(0) << utilization << "%" << std::endl;
     *out << "Active Cores: " << getActiveCores() << std::endl;
     *out << "Cores Available: " << (num_cores - getActiveCores()) << std::endl;
     *out << "Processes in queue: " << getQueueSize() << std::endl;
