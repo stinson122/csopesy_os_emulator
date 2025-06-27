@@ -152,7 +152,8 @@ void Scheduler::stopBatchProcess() {
     }
     batch_running = false;
 }
-
+/*
+ // VER 1
 void Scheduler::batchWorker() {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -169,6 +170,58 @@ void Scheduler::batchWorker() {
         for (uint64_t i = 0; i < batch_frequency && !stop_batch; i++) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
+    }
+} 
+
+// VER 2
+void Scheduler::batchWorker() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
+    uint64_t cycles_waited = 0;
+
+    while (!stop_batch) {
+        // Wait for the required number of CPU cycles
+        while (cycles_waited < batch_frequency && !stop_batch) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            cycles_waited++;
+        }
+
+        if (stop_batch) break;
+
+        // Generate a new process
+        std::string name = "p" + std::to_string(process_counter++);
+        uint64_t instructions = dist(gen);
+        Process* p = new Process(name, instructions);
+        addProcess(p);
+
+        cycles_waited = 0;
+    }
+}*/
+
+// most robust VER so far
+void Scheduler::batchWorker() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
+
+    uint64_t last_cycle = cpu_cycles.load();
+
+    while (!stop_batch) {
+        // Wait for the required number of CPU cycles
+        while ((cpu_cycles.load() - last_cycle) < batch_frequency && !stop_batch) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        if (stop_batch) break;
+
+        // Generate a new process
+        std::string name = "p" + std::to_string(process_counter++);
+        uint64_t instructions = dist(gen);
+        Process* p = new Process(name, instructions);
+        addProcess(p);
+
+        last_cycle = cpu_cycles.load();
     }
 }
 
@@ -206,6 +259,7 @@ void Scheduler::schedule() {
     }
 }
 
+/*
 void Scheduler::worker(int core_id) {
     while (!stop_requested) {
         Process* p = nullptr;
@@ -219,7 +273,7 @@ void Scheduler::worker(int core_id) {
         if (p) {
             // If process is sleeping, wait
             if (p->isSleeping()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
 
@@ -227,6 +281,73 @@ void Scheduler::worker(int core_id) {
 
             // Execute one instruction
             if (p->executeNextInstruction(core_id)) {
+                // Process finished
+                p->state = ProcessState::Finished;
+                {
+                    std::lock_guard<std::mutex> lock(finished_mutex);
+                    finished_processes.push_back(p);
+                }
+                {
+                    std::lock_guard<std::mutex> lock(cores_mutex);
+                    cores[core_id] = nullptr;
+                }
+                quantum_counters[core_id] = 0; // Reset counter
+                continue;
+            }
+
+            // Round Robin preemption check
+            if (scheduler_type == "rr") {
+                quantum_counters[core_id]++;
+
+                if (quantum_counters[core_id] >= quantum_cycles) {
+                    // Preempt process
+                    {
+                        std::lock_guard<std::mutex> lock(queue_mutex);
+                        process_queue.push(p);
+                        p->state = ProcessState::Waiting;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lock(cores_mutex);
+                        cores[core_id] = nullptr;
+                    }
+                    quantum_counters[core_id] = 0; // Reset counter
+                }
+            }
+        }
+        else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+}*/
+
+void Scheduler::worker(int core_id) {
+    while (!stop_requested) {
+        Process* p = nullptr;
+
+        // Check if core has a process assigned
+        {
+            std::lock_guard<std::mutex> lock(cores_mutex);
+            p = cores[core_id];
+        }
+
+        if (p) {
+            // If process is sleeping, wait
+            if (p->isSleeping()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_per_exec));
+                continue;
+            }
+
+            p->state = ProcessState::Running;
+
+            // Execute one instruction
+            bool finished = p->executeNextInstruction(core_id);
+
+            // Simulate instruction execution delay
+            if (delay_per_exec > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_per_exec));
+            }
+
+            if (finished) {
                 // Process finished
                 p->state = ProcessState::Finished;
                 {

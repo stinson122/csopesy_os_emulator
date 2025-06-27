@@ -75,9 +75,13 @@ bool Process::executeNextInstruction(int core_id) {
         remaining_instructions--;  // Count sleep as an instruction
         return false;
     }
-    else {
+    else if (sleep_until > 0) {
         sleep_until = 0;  // Wake up if sleep time has passed
     }
+	/*
+	else {
+        sleep_until = 0;  // Wake up if sleep time has passed
+    }*/
 
     auto& instr = instructions[current_instruction++];
 

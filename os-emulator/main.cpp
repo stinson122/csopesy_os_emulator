@@ -203,12 +203,26 @@ int main(int argc, char* argv[]) {
     if (argc > 0) {
         exe_dir = std::filesystem::path(argv[0]).parent_path();
     }
-
+    /*
     // Start CPU cycle counter thread
     std::thread cycle_counter([]() {
         while (true) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             cpu_cycles++;
+        }
+        });
+    */
+
+    std::thread cycle_counter([]() {
+        auto last_time = std::chrono::steady_clock::now();
+        while (true) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
+            if (elapsed.count() >= 100) { // Update every 100ms
+                cpu_cycles++;
+                last_time = now;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         });
     cycle_counter.detach();
