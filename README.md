@@ -1,13 +1,13 @@
 Machine Project Group 5
 Members:
 
-Marasigan, Marc Daniel
+Marasigan, Marc Daniel (S15)
 
-Santiago, Nikolai 
+Santiago, Nikolai (S15)
 
-Stinson, Audrey
+Stinson, Audrey (S14)
 
-Tuballa, Hans
+Tuballa, Hans (S14)
 
 
 How to open/run the emulator:
