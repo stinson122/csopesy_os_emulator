@@ -1,9 +1,14 @@
 Machine Project Group 5
 Members:
+
 Marasigan, Marc Daniel
+
 Santiago, Nikolai 
+
 Stinson, Audrey
+
 Tuballa, Hans
+
 
 How to open/run the emulator:
 1. Open Visual Studio Community 2022
