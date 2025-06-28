@@ -93,7 +93,7 @@ Config readConfig(const std::string& filename, const std::filesystem::path& exe_
 
     return config;
 }
-
+/*
 void processSMI(Process* p) {
     if (!p) return;
 
@@ -108,6 +108,28 @@ void processSMI(Process* p) {
 
     if (p->state == ProcessState::Finished) {
         std::cout << "Finished!" << std::endl;
+    }
+}*/
+
+void processSMI(Process* p) {
+    if (!p) return;
+
+    std::cout << "Process name: " << p->name << std::endl;
+    //std::cout << "ID: " << p->core_id << std::endl;
+    std::cout << "Logs:" << std::endl;
+
+    // Print log messages
+    auto logs = p->getLogMessages();
+    for (const auto& log : logs) {
+        std::cout << log;
+    }
+
+    int remaining = p->remaining_instructions.load();
+    std::cout << "\nCurrent instruction line: " << (p->total_instructions - remaining) << std::endl;
+    std::cout << "Lines of code: " << p->total_instructions << std::endl;
+
+    if (p->state == ProcessState::Finished) {
+        std::cout << "\nFinished!" << std::endl;
     }
 }
 
@@ -297,7 +319,7 @@ int main(int argc, char* argv[]) {
                             std::cout << "Created new process: " << processName << std::endl;
                         }
                         else {
-                            std::cout << "Process " << processName << " already exists." << std::endl;
+                            std::cout << "Process " << processName << " already exists." << std::endl; continue;
                         }
                     }
                     else if (flag == "-r") {
@@ -314,7 +336,8 @@ int main(int argc, char* argv[]) {
                     if (flag == "-s") {
                         drawScreen(processName);
                     } else if (flag == "-r") {
-                        viewProcessScreen(processName);
+                        //viewProcessScreen(processName);
+                        drawScreen(processName);
                     }
                 }
                 else {
