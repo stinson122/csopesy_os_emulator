@@ -152,7 +152,7 @@ void Scheduler::stopBatchProcess() {
     }
     batch_running = false;
 }
-/*
+
  // VER 1
 void Scheduler::batchWorker() {
     std::random_device rd;
@@ -167,12 +167,16 @@ void Scheduler::batchWorker() {
         addProcess(p);
 
         // Sleep for batch frequency (simulated)
-        for (uint64_t i = 0; i < batch_frequency && !stop_batch; i++) {
+        /*for (uint64_t i = 0; i < batch_frequency && !stop_batch; i++) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }*/
+        uint64_t target_cycle = cpu_cycles + batch_frequency;
+        while (cpu_cycles < target_cycle && !stop_batch) {
+            std::this_thread::sleep_for(std::chrono::microseconds(10)); // Yield a little
         }
     }
 } 
-
+/*
 // VER 2
 void Scheduler::batchWorker() {
     std::random_device rd;
@@ -200,30 +204,30 @@ void Scheduler::batchWorker() {
 }*/
 
 // most robust VER so far
-void Scheduler::batchWorker() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
-
-    uint64_t last_cycle = cpu_cycles.load();
-
-    while (!stop_batch) {
-        // Wait for the required number of CPU cycles
-        while ((cpu_cycles.load() - last_cycle) < batch_frequency && !stop_batch) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-
-        if (stop_batch) break;
-
-        // Generate a new process
-        std::string name = "p" + std::to_string(process_counter++);
-        uint64_t instructions = dist(gen);
-        Process* p = new Process(name, instructions);
-        addProcess(p);
-
-        last_cycle = cpu_cycles.load();
-    }
-}
+//void Scheduler::batchWorker() {
+//    std::random_device rd;
+//    std::mt19937 gen(rd());
+//    std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
+//
+//    uint64_t last_cycle = cpu_cycles.load();
+//
+//    while (!stop_batch) {
+//        // Wait for the required number of CPU cycles
+//        while ((cpu_cycles.load() - last_cycle) < batch_frequency && !stop_batch) {
+//            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+//        }
+//
+//        if (stop_batch) break;
+//
+//        // Generate a new process
+//        std::string name = "p" + std::to_string(process_counter++);
+//        uint64_t instructions = dist(gen);
+//        Process* p = new Process(name, instructions);
+//        addProcess(p);
+//
+//        last_cycle = cpu_cycles.load();
+//    }
+//}
 
 void Scheduler::schedule() {
     while (!stop_requested) {
@@ -343,8 +347,14 @@ void Scheduler::worker(int core_id) {
             bool finished = p->executeNextInstruction(core_id);
 
             // Simulate instruction execution delay
-            if (delay_per_exec > 0) {
+            /*if (delay_per_exec > 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(delay_per_exec));
+            }*/
+            if (delay_per_exec > 0) {
+                uint64_t target_cycle = cpu_cycles + delay_per_exec;
+                while (cpu_cycles < target_cycle && !stop_requested) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(10)); // yield slightly
+                }
             }
 
             if (finished) {
