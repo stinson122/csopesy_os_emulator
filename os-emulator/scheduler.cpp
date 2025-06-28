@@ -152,7 +152,7 @@ void Scheduler::stopBatchProcess() {
     }
     batch_running = false;
 }
-
+/*
  // VER 1
 void Scheduler::batchWorker() {
     std::random_device rd;
@@ -167,15 +167,16 @@ void Scheduler::batchWorker() {
         addProcess(p);
 
         // Sleep for batch frequency (simulated)
-        /*for (uint64_t i = 0; i < batch_frequency && !stop_batch; i++) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }*/
+        //for (uint64_t i = 0; i < batch_frequency && !stop_batch; i++) {
+        //    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        //}
         uint64_t target_cycle = cpu_cycles + batch_frequency;
         while (cpu_cycles < target_cycle && !stop_batch) {
             std::this_thread::sleep_for(std::chrono::microseconds(10)); // Yield a little
         }
     }
-} 
+}
+*/
 /*
 // VER 2
 void Scheduler::batchWorker() {
@@ -204,7 +205,6 @@ void Scheduler::batchWorker() {
 }*/
 
 // most robust VER so far
-<<<<<<< Updated upstream
 //void Scheduler::batchWorker() {
 //    std::random_device rd;
 //    std::mt19937 gen(rd());
@@ -229,7 +229,7 @@ void Scheduler::batchWorker() {
 //        last_cycle = cpu_cycles.load();
 //    }
 //}
-=======
+
 void Scheduler::batchWorker() {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -240,7 +240,7 @@ void Scheduler::batchWorker() {
     while (!stop_batch) {
         // Wait for the required number of CPU cycles
         while ((cpu_cycles.load() - last_cycle) < batch_frequency && !stop_batch) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
         if (stop_batch) break;
@@ -254,7 +254,6 @@ void Scheduler::batchWorker() {
         last_cycle = cpu_cycles.load();
     }
 }
->>>>>>> Stashed changes
 
 void Scheduler::schedule() {
     while (!stop_requested) {

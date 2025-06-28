@@ -21,83 +21,36 @@ Process::Process(const std::string& name, int total_instructions)
 void Process::generateRandomInstructions() {
     instructions.clear();
 
-    // Always declare x, y, z with initial value 0
+    // Declare x with initial value 0
     Instruction decl_x;
     decl_x.type = "DECLARE";
     decl_x.operands.push_back("x");
     decl_x.operands.push_back(static_cast<uint16_t>(0));
     instructions.push_back(decl_x);
 
-    Instruction decl_y;
-    decl_y.type = "DECLARE";
-    decl_y.operands.push_back("y");
-    decl_y.operands.push_back(static_cast<uint16_t>(0));
-    instructions.push_back(decl_y);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint16_t> dist(1, 10);
 
-    Instruction decl_z;
-    decl_z.type = "DECLARE";
-    decl_z.operands.push_back("z");
-    decl_z.operands.push_back(static_cast<uint16_t>(0));
-    instructions.push_back(decl_z);
-
-    // Create FOR instruction with 100 repetitions
-    Instruction for_instr;
-    for_instr.type = "FOR";
-    for_instr.operands.push_back(static_cast<uint16_t>(100));
-    instructions.push_back(for_instr);
-
-    // Loop body instructions
-    // ADD(x, x, 1)
-    Instruction add_x;
-    add_x.type = "ADD";
-    add_x.operands.push_back("x");
-    add_x.operands.push_back("x");
-    add_x.operands.push_back(static_cast<uint16_t>(1));
-    instructions.push_back(add_x);
-
-    // PRINT("Value from: x = ")
-    Instruction print_x;
-    print_x.type = "PRINT";
-    print_x.operands.push_back("Value from: x = ");
-    print_x.operands.push_back("x");
-    instructions.push_back(print_x);
-
-    // ADD(y, y, 1)
-    Instruction add_y;
-    add_y.type = "ADD";
-    add_y.operands.push_back("y");
-    add_y.operands.push_back("y");
-    add_y.operands.push_back(static_cast<uint16_t>(1));
-    instructions.push_back(add_y);
-
-    // PRINT("Value from: y = ")
-    Instruction print_y;
-    print_y.type = "PRINT";
-    print_y.operands.push_back("Value from: y = ");
-    print_y.operands.push_back("y");
-    instructions.push_back(print_y);
-
-    // ADD(z, z, 1)
-    Instruction add_z;
-    add_z.type = "ADD";
-    add_z.operands.push_back("z");
-    add_z.operands.push_back("z");
-    add_z.operands.push_back(static_cast<uint16_t>(1));
-    instructions.push_back(add_z);
-
-    // PRINT("Value from: z = ")
-    Instruction print_z;
-    print_z.type = "PRINT";
-    print_z.operands.push_back("Value from: z = ");
-    print_z.operands.push_back("z");
-    instructions.push_back(print_z);
-
-    // Pad with NOOPs to reach total_instructions (1000)
-    int num_instructions_so_far = instructions.size();
-    for (int i = 0; i < total_instructions - num_instructions_so_far; i++) {
-        Instruction noop;
-        noop.type = "NOOP";
-        instructions.push_back(noop);
+    // Generate alternating PRINT and ADD instructions
+    for (int i = 1; i < total_instructions; i++) {
+        if (i % 2 == 1) {
+            // PRINT instruction
+            Instruction print_instr;
+            print_instr.type = "PRINT";
+            print_instr.operands.push_back("Value from: x = ");
+            print_instr.operands.push_back("x");
+            instructions.push_back(print_instr);
+        }
+        else {
+            // ADD instruction
+            Instruction add_instr;
+            add_instr.type = "ADD";
+            add_instr.operands.push_back("x");
+            add_instr.operands.push_back("x");
+            add_instr.operands.push_back(dist(gen));
+            instructions.push_back(add_instr);
+        }
     }
 }
 
@@ -110,21 +63,83 @@ bool Process::executeNextInstruction(int core_id) {
 
     // Check if process is sleeping
     if (sleep_until > 0 && cpu_cycles < sleep_until) {
-        remaining_instructions--;  // Count sleep as an instruction
-        return false;
+        return false; // Still sleeping
     }
     else if (sleep_until > 0) {
-        sleep_until = 0;  // Wake up if sleep time has passed
+        sleep_until = 0; // Wake up if sleep time has passed
     }
-	/*
-	else {
-        sleep_until = 0;  // Wake up if sleep time has passed
-    }*/
 
-    auto& instr = instructions[current_instruction++];
+    auto& instr = instructions[current_instruction]; // Get current instruction
 
-    // note: best to test with only 1 process running, use screen -s
-    auto executeInstruction = [&](const Instruction& instr) {
+    bool instruction_executed = false; // Flag to indicate if a "real" instruction was executed
+
+    if (instr.type == "FOR") {
+        uint16_t repeats = std::get<uint16_t>(instr.operands[0]);
+        size_t loop_start_index = current_instruction + 1; // Assuming loop body follows immediately
+
+        for (uint16_t i = 0; i < repeats; ++i) {
+            // Execute the 6 instructions of the loop body
+            for (int j = 0; j < 6; ++j) {
+                if (loop_start_index + j >= instructions.size()) {
+                    break; // Prevent out-of-bounds access
+                }
+                auto& nested_instr = instructions[loop_start_index + j];
+                // Execute the instruction, if it's SLEEP, handle it.
+                // If logPrint is called within this, logs will appear.
+                if (nested_instr.type == "PRINT") {
+                    std::string message;
+                    for (const auto& op : nested_instr.operands) {
+                        if (std::holds_alternative<std::string>(op)) {
+                            std::string str = std::get<std::string>(op);
+                            auto it = variables.find(str);
+                            if (it != variables.end()) {
+                                message += std::to_string(it->second);
+                            }
+                            else {
+                                message += str;
+                            }
+                        }
+                        else if (std::holds_alternative<uint16_t>(op)) {
+                            message += std::to_string(std::get<uint16_t>(op));
+                        }
+                    }
+                    logPrint(message, core_id, std::chrono::system_clock::now());
+                }
+                else if (nested_instr.type == "DECLARE") {
+                    std::string var = std::get<std::string>(nested_instr.operands[0]);
+                    uint16_t value = std::get<uint16_t>(nested_instr.operands[1]);
+                    declareVariable(var, value);
+                }
+                else if (nested_instr.type == "ADD") {
+                    std::string dest = std::get<std::string>(nested_instr.operands[0]);
+                    uint16_t op1 = getOperandValue(nested_instr.operands[1]);
+                    uint16_t op2 = getOperandValue(nested_instr.operands[2]);
+                    declareVariable(dest, op1 + op2);
+                }
+                else if (nested_instr.type == "SUBTRACT") {
+                    std::string dest = std::get<std::string>(nested_instr.operands[0]);
+                    uint16_t op1 = getOperandValue(nested_instr.operands[1]);
+                    uint16_t op2 = getOperandValue(nested_instr.operands[2]);
+                    declareVariable(dest, std::max(0, static_cast<int>(op1 - op2)));
+                }
+                else if (nested_instr.type == "SLEEP") {
+                    uint8_t ticks = static_cast<uint8_t>(std::get<uint16_t>(nested_instr.operands[0]));
+                    sleep_until = cpu_cycles + ticks;
+                    
+                    current_instruction = loop_start_index + j; // Point to the SLEEP instruction
+                    remaining_instructions--; // Count the SLEEP instruction itself
+                    return false; // Process is now sleeping, scheduler should re-queue later
+                }
+            }
+        }
+        // After the FOR loop finishes all its repetitions
+        current_instruction += 7; // Skip the FOR instruction itself and the 6 instructions in its body
+        remaining_instructions -= (repeats * 6); // Total instructions consumed by FOR
+        instruction_executed = true; // FOR loop effectively executed
+    }
+    else {
+        // Execute non-FOR instructions (PRINT, DECLARE, ADD, SUBTRACT, NOOP, SLEEP)
+        // This is the common path for single instructions.
         if (instr.type == "PRINT") {
             std::string message;
             for (const auto& op : instr.operands) {
@@ -148,10 +163,6 @@ bool Process::executeNextInstruction(int core_id) {
             std::string var = std::get<std::string>(instr.operands[0]);
             uint16_t value = std::get<uint16_t>(instr.operands[1]);
             declareVariable(var, value);
-            /*Temp Test Print
-            std::cout << "DECLARE" << std::endl;
-            std::cout << std::get<std::string>(instr.operands[0]) << "=" << std::get<std::uint16_t>(instr.operands[1]) << std::endl;
-            std::cout << var << "=" << value << std::endl;*/
         }
         else if (instr.type == "NOOP") {
             // Do nothing
@@ -161,54 +172,34 @@ bool Process::executeNextInstruction(int core_id) {
             uint16_t op1 = getOperandValue(instr.operands[1]);
             uint16_t op2 = getOperandValue(instr.operands[2]);
             declareVariable(dest, op1 + op2);
-            /*Temp Test Print
-            std::cout << "ADD" << std::endl;
-            std::cout << getOperandValue(instr.operands[1]) << "+" << getOperandValue(instr.operands[2]) << ":" << getOperandValue(instr.operands[0]) << std::endl;
-            std::cout << op1 << "+" << op2 << "=" << getOperandValue(instr.operands[0]) << std::endl;*/
         }
         else if (instr.type == "SUBTRACT") {
             std::string dest = std::get<std::string>(instr.operands[0]);
             uint16_t op1 = getOperandValue(instr.operands[1]);
             uint16_t op2 = getOperandValue(instr.operands[2]);
             declareVariable(dest, std::max(0, static_cast<int>(op1 - op2)));
-            /*Temp Test Print
-            std::cout << "SUB" << std::endl;
-            std::cout << getOperandValue(instr.operands[1]) << "-" << getOperandValue(instr.operands[2]) << ":" << getOperandValue(instr.operands[0]) << std::endl;
-            std::cout << op1 << "-" << op2 << "=" << getOperandValue(instr.operands[0]) << std::endl;*/
         }
         else if (instr.type == "SLEEP") {
             uint8_t ticks = static_cast<uint8_t>(std::get<uint16_t>(instr.operands[0]));
             sleep_until = cpu_cycles + ticks;
-            /*Temp Test Print
-            std::cout << "SLEEP for " << static_cast<int>(ticks) << std::endl;
-            return true; //true for sleep */
+            remaining_instructions--; // The SLEEP instruction itself is 'executed'
+            current_instruction++; // Move past the SLEEP instruction
+            return false; // Indicate that the process is now sleeping
         }
-        return false;
-    };
-
-    if (instr.type == "FOR") {
-        uint16_t repeats = std::get<uint16_t>(instr.operands[0]);
-        size_t loop_start = current_instruction;
-
-        for (uint16_t i = 0; i < repeats; i++) {
-            // Execute all 6 instructions in the loop body
-            for (int j = 0; j < 6; j++) {
-                if (loop_start + j >= instructions.size()) break;
-
-                auto& nested_instr = instructions[loop_start + j];
-                if (executeInstruction(nested_instr)) {
-                    // If sleep encountered, return early
-                    return false;
-                }
-            }
-        }
-
-        // Skip the loop body instructions
-        current_instruction = loop_start + 6;
+        instruction_executed = true; // A non-FOR instruction was executed
+        current_instruction++; // Move to the next instruction
     }
 
-    remaining_instructions--;
-    return false;
+    if (instruction_executed) {
+        remaining_instructions--;
+    }
+
+    if (remaining_instructions.load() <= 0) {
+        state = ProcessState::Finished;
+        end_time = std::chrono::system_clock::now();
+        return true; // Process finished
+    }
+    return false; // Process is still running or went to sleep
 }
 
 uint16_t Process::getOperandValue(const Value& operand) const {

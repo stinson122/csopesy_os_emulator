@@ -115,18 +115,31 @@ void processSMI(Process* p) {
     if (!p) return;
 
     std::cout << "Process name: " << p->name << std::endl;
-    //std::cout << "ID: " << p->core_id << std::endl;
+    std::cout << "State: ";
+    switch (p->state.load()) {
+    case ProcessState::Waiting: std::cout << "Waiting"; break;
+    case ProcessState::Running: std::cout << "Running"; break;
+    case ProcessState::Finished: std::cout << "Finished"; break;
+    }
+    std::cout << std::endl;
+
     std::cout << "Logs:" << std::endl;
 
-    // Print log messages
+    // Get logs directly from the process
     auto logs = p->getLogMessages();
-    for (const auto& log : logs) {
-        std::cout << log;
+    if (logs.empty()) {
+        std::cout << "No log messages yet." << std::endl;
+    }
+    else {
+        for (const auto& log : logs) {
+            std::cout << log;
+        }
     }
 
     int remaining = p->remaining_instructions.load();
     std::cout << "\nCurrent instruction line: " << (p->total_instructions - remaining) << std::endl;
     std::cout << "Lines of code: " << p->total_instructions << std::endl;
+    std::cout << "Remaining instructions: " << remaining << std::endl;
 
     if (p->state == ProcessState::Finished) {
         std::cout << "\nFinished!" << std::endl;

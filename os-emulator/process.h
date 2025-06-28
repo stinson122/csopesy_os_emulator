@@ -26,6 +26,9 @@ public:
     void logPrint(const std::string& message, int core,
         const std::chrono::system_clock::time_point& time);
     std::vector<std::string> getLogMessages();
+    
+    // Add this public method
+    const std::vector<std::string>& getLogs() const { return log_messages; }
 
     // Instruction execution
     bool executeNextInstruction(int core_id);
