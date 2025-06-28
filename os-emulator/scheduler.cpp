@@ -204,6 +204,7 @@ void Scheduler::batchWorker() {
 }*/
 
 // most robust VER so far
+<<<<<<< Updated upstream
 //void Scheduler::batchWorker() {
 //    std::random_device rd;
 //    std::mt19937 gen(rd());
@@ -228,6 +229,32 @@ void Scheduler::batchWorker() {
 //        last_cycle = cpu_cycles.load();
 //    }
 //}
+=======
+void Scheduler::batchWorker() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
+
+    uint64_t last_cycle = cpu_cycles.load();
+
+    while (!stop_batch) {
+        // Wait for the required number of CPU cycles
+        while ((cpu_cycles.load() - last_cycle) < batch_frequency && !stop_batch) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        if (stop_batch) break;
+
+        // Generate a new process
+        std::string name = "p" + std::to_string(process_counter++);
+        uint64_t instructions = dist(gen);
+        Process* p = new Process(name, instructions);
+        addProcess(p);
+
+        last_cycle = cpu_cycles.load();
+    }
+}
+>>>>>>> Stashed changes
 
 void Scheduler::schedule() {
     while (!stop_requested) {

@@ -19,47 +19,85 @@ Process::Process(const std::string& name, int total_instructions)
 }
 
 void Process::generateRandomInstructions() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint16_t> value_dist(0, 100);
-    std::uniform_int_distribution<uint16_t> value_dist_uint8(0, 100);
-    std::uniform_int_distribution<int> op_dist(0, 5);
+    instructions.clear();
 
-    for (int i = 0; i < total_instructions; i++) {
-        Instruction instr;
-        switch (op_dist(gen)) {
-        case 0: // PRINT
-            instr.type = "PRINT";
-            instr.operands.push_back("Hello world from " + name + "!");
-            break;
-        case 1: // DECLARE
-            instr.type = "DECLARE";
-            instr.operands.push_back("var" + std::to_string(i % 10));
-            instr.operands.push_back(value_dist(gen));
-            break;
-        case 2: // ADD
-            instr.type = "ADD";
-            instr.operands.push_back("var" + std::to_string(i % 10));
-            instr.operands.push_back("var" + std::to_string((i + 1) % 10));
-            instr.operands.push_back(value_dist(gen));
-            break;
-        case 3: // SUBTRACT
-            instr.type = "SUBTRACT";
-            instr.operands.push_back("var" + std::to_string(i % 10));
-            instr.operands.push_back("var" + std::to_string((i + 1) % 10));
-            instr.operands.push_back(value_dist(gen));
-            break;
-        case 4: // SLEEP
-            instr.type = "SLEEP";
-            instr.operands.push_back(static_cast<uint8_t>(value_dist_uint8(gen) % 10 + 1));
-            break;
-        case 5: // FOR
-            instr.type = "FOR";
-            instr.operands.push_back(static_cast<uint16_t>(3)); // Repeat count
-            // The next instruction will be treated as the loop body
-            break;
-        }
-        instructions.push_back(instr);
+    // Always declare x, y, z with initial value 0
+    Instruction decl_x;
+    decl_x.type = "DECLARE";
+    decl_x.operands.push_back("x");
+    decl_x.operands.push_back(static_cast<uint16_t>(0));
+    instructions.push_back(decl_x);
+
+    Instruction decl_y;
+    decl_y.type = "DECLARE";
+    decl_y.operands.push_back("y");
+    decl_y.operands.push_back(static_cast<uint16_t>(0));
+    instructions.push_back(decl_y);
+
+    Instruction decl_z;
+    decl_z.type = "DECLARE";
+    decl_z.operands.push_back("z");
+    decl_z.operands.push_back(static_cast<uint16_t>(0));
+    instructions.push_back(decl_z);
+
+    // Create FOR instruction with 100 repetitions
+    Instruction for_instr;
+    for_instr.type = "FOR";
+    for_instr.operands.push_back(static_cast<uint16_t>(100));
+    instructions.push_back(for_instr);
+
+    // Loop body instructions
+    // ADD(x, x, 1)
+    Instruction add_x;
+    add_x.type = "ADD";
+    add_x.operands.push_back("x");
+    add_x.operands.push_back("x");
+    add_x.operands.push_back(static_cast<uint16_t>(1));
+    instructions.push_back(add_x);
+
+    // PRINT("Value from: x = ")
+    Instruction print_x;
+    print_x.type = "PRINT";
+    print_x.operands.push_back("Value from: x = ");
+    print_x.operands.push_back("x");
+    instructions.push_back(print_x);
+
+    // ADD(y, y, 1)
+    Instruction add_y;
+    add_y.type = "ADD";
+    add_y.operands.push_back("y");
+    add_y.operands.push_back("y");
+    add_y.operands.push_back(static_cast<uint16_t>(1));
+    instructions.push_back(add_y);
+
+    // PRINT("Value from: y = ")
+    Instruction print_y;
+    print_y.type = "PRINT";
+    print_y.operands.push_back("Value from: y = ");
+    print_y.operands.push_back("y");
+    instructions.push_back(print_y);
+
+    // ADD(z, z, 1)
+    Instruction add_z;
+    add_z.type = "ADD";
+    add_z.operands.push_back("z");
+    add_z.operands.push_back("z");
+    add_z.operands.push_back(static_cast<uint16_t>(1));
+    instructions.push_back(add_z);
+
+    // PRINT("Value from: z = ")
+    Instruction print_z;
+    print_z.type = "PRINT";
+    print_z.operands.push_back("Value from: z = ");
+    print_z.operands.push_back("z");
+    instructions.push_back(print_z);
+
+    // Pad with NOOPs to reach total_instructions (1000)
+    int num_instructions_so_far = instructions.size();
+    for (int i = 0; i < total_instructions - num_instructions_so_far; i++) {
+        Instruction noop;
+        noop.type = "NOOP";
+        instructions.push_back(noop);
     }
 }
 
@@ -88,7 +126,22 @@ bool Process::executeNextInstruction(int core_id) {
     // note: best to test with only 1 process running, use screen -s
     auto executeInstruction = [&](const Instruction& instr) {
         if (instr.type == "PRINT") {
-            std::string message = std::get<std::string>(instr.operands[0]);
+            std::string message;
+            for (const auto& op : instr.operands) {
+                if (std::holds_alternative<std::string>(op)) {
+                    std::string str = std::get<std::string>(op);
+                    auto it = variables.find(str);
+                    if (it != variables.end()) {
+                        message += std::to_string(it->second);
+                    }
+                    else {
+                        message += str;
+                    }
+                }
+                else if (std::holds_alternative<uint16_t>(op)) {
+                    message += std::to_string(std::get<uint16_t>(op));
+                }
+            }
             logPrint(message, core_id, std::chrono::system_clock::now());
         }
         else if (instr.type == "DECLARE") {
@@ -99,6 +152,9 @@ bool Process::executeNextInstruction(int core_id) {
             std::cout << "DECLARE" << std::endl;
             std::cout << std::get<std::string>(instr.operands[0]) << "=" << std::get<std::uint16_t>(instr.operands[1]) << std::endl;
             std::cout << var << "=" << value << std::endl;*/
+        }
+        else if (instr.type == "NOOP") {
+            // Do nothing
         }
         else if (instr.type == "ADD") {
             std::string dest = std::get<std::string>(instr.operands[0]);
@@ -130,29 +186,25 @@ bool Process::executeNextInstruction(int core_id) {
         return false;
     };
 
-    try {
-        if (executeInstruction(instr)) {
-            return false; // stop if sleep
-        }
+    if (instr.type == "FOR") {
+        uint16_t repeats = std::get<uint16_t>(instr.operands[0]);
+        size_t loop_start = current_instruction;
 
-        if (instr.type == "FOR") {
-            uint16_t repeats = std::get<uint16_t>(instr.operands[0]);
-            size_t loop_start = current_instruction;
-            for (uint16_t i = 0; i < repeats; i++) {
-                current_instruction = loop_start;
-                if (current_instruction >= instructions.size()) break;
-                /*Temp Test Print
-                std::cout << "FOR " << (i+1) << ": " << instructions[current_instruction++].type << std::endl;*/
+        for (uint16_t i = 0; i < repeats; i++) {
+            // Execute all 6 instructions in the loop body
+            for (int j = 0; j < 6; j++) {
+                if (loop_start + j >= instructions.size()) break;
 
-                auto& nested_instr = instructions[current_instruction++];
+                auto& nested_instr = instructions[loop_start + j];
                 if (executeInstruction(nested_instr)) {
-                    break; // exit if sleep
+                    // If sleep encountered, return early
+                    return false;
                 }
             }
         }
-    }
-    catch (const std::bad_variant_access& e) {
-        std::cerr << "Error executing instruction: " << e.what() << std::endl;
+
+        // Skip the loop body instructions
+        current_instruction = loop_start + 6;
     }
 
     remaining_instructions--;
