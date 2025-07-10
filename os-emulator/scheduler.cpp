@@ -94,7 +94,7 @@ void MemoryManager::generateMemorySnapshot(uint64_t quantum, const std::string& 
     }
 
     file << "Number of processes in memory: " << process_count << "\n";
-    file << "Total external fragmentation in KB: " << (external_frag / 1024) << "\n\n";
+    file << "Total external fragmentation in KB: " << (external_frag) << "\n\n";
 
     file << "----end---- = " << total_memory << " (max-overall-mem)\n\n";
 

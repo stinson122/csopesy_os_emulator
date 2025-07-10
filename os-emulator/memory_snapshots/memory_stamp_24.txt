@@ -1,10 +1,11 @@
-Timestamp: 07/10/2025 06:21:43PM
-Number of processes in memory: 3
-Total external fragmentation in KB: 4
+Timestamp: 07/10/2025 06:57:06PM
+Number of processes in memory: 4
+Total external fragmentation in KB: 0
 
 ----end---- = 16384 (max-overall-mem)
 
 16384
+p4
 12288
 
 12288
