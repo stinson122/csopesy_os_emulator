@@ -45,6 +45,8 @@ public:
     std::chrono::system_clock::time_point start_time;
     std::chrono::system_clock::time_point end_time;
     std::function<void(const std::string&)> log_callback;
+    uint64_t memory_start = 0;
+    uint64_t memory_end = 0;
 
 private:
     struct Instruction {

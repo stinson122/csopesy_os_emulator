@@ -1,3 +1,7 @@
 ﻿  main.cpp
-C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\main.cpp(317,67): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
+C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\main.cpp(330,67): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
+  scheduler.cpp
+C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\scheduler.cpp(170,30): warning C4267: 'return': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\scheduler.cpp(257,40): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
+  Generating Code...
   os-emulator.vcxproj -> C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\x64\Debug\os-emulator.exe

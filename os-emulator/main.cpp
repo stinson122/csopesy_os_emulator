@@ -32,6 +32,9 @@ struct Config {
     uint64_t min_instructions = 1;
     uint64_t max_instructions = 2000;
     uint64_t delay_per_exec = 100;
+    uint64_t max_overall_mem = 16384;
+    uint64_t mem_per_frame = 16;
+    uint64_t mem_per_proc = 4096;
 };
 
 Config readConfig(const std::string& filename, const std::filesystem::path& exe_dir) {
@@ -51,9 +54,7 @@ Config readConfig(const std::string& filename, const std::filesystem::path& exe_
         }
     }
 
-    // ADD THIS LINE: Declare the 'line' variable
-    std::string line;  // <-- This is the missing declaration
-    // Read the config file line by line
+    std::string line; // Read the config file line by line
 
     while (std::getline(file, line)) {
         std::istringstream iss(line);
@@ -88,6 +89,15 @@ Config readConfig(const std::string& filename, const std::filesystem::path& exe_
         }
         else if (key == "delay-per-exec") {
             iss >> config.delay_per_exec;
+        }
+        else if (key == "max-overall-mem") {
+            iss >> config.max_overall_mem;
+        }
+        else if (key == "mem-per-frame") {
+            iss >> config.mem_per_frame;
+        }
+        else if (key == "mem-per-proc") {
+            iss >> config.mem_per_proc;
         }
     }
 
@@ -272,7 +282,8 @@ int main(int argc, char* argv[]) {
             else {
                 // Pass executable directory to readConfig
                 Config config = readConfig("config.txt", exe_dir);
-                scheduler = new Scheduler(config.num_cpu);
+                scheduler = new Scheduler(config.num_cpu, config.max_overall_mem,
+                    config.mem_per_frame, config.mem_per_proc);
                 scheduler->setSchedulerType(config.scheduler_type);
                 scheduler->setQuantumCycles(config.quantum_cycles);
                 scheduler->setMinInstructions(config.min_instructions);

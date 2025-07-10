@@ -1,13 +1,15 @@
 #include "scheduler.h"
 #include <iostream>
 #include <chrono>
+#include <filesystem>
 #include <iomanip>
 #include <fstream>
 #include <random>
 
-Scheduler::Scheduler(int num_cores)
+Scheduler::Scheduler(int num_cores, uint64_t total_mem, uint64_t frame_size, uint64_t proc_mem)
     : num_cores(num_cores), cores(num_cores, nullptr),
-    stop_requested(false), is_running(false) {}
+    stop_requested(false), is_running(false),
+    memory_manager(total_mem, frame_size, proc_mem) {}
 
 Scheduler::~Scheduler() {
     stop();
@@ -16,6 +18,95 @@ Scheduler::~Scheduler() {
     for (auto& p : all_processes) {
         delete p.second;
     }
+}
+
+bool MemoryManager::allocateFirstFit(Process* p) {
+    std::lock_guard<std::mutex> lock(mem_mutex);
+    for (auto it = memory_blocks.begin(); it != memory_blocks.end(); ++it) {
+        if (!it->allocated && (it->end - it->start + 1) >= proc_memory) {
+            uint64_t remaining = (it->end - it->start + 1) - proc_memory;
+            if (remaining > 0) {
+                MemoryBlock new_block = { it->start + proc_memory, it->end, nullptr, false };
+                memory_blocks.insert(std::next(it), new_block);
+            }
+            it->end = it->start + proc_memory - 1;
+            it->process = p;
+            it->allocated = true;
+            p->memory_start = it->start;
+            p->memory_end = it->end;
+            return true;
+        }
+    }
+    return false;
+}
+
+void MemoryManager::deallocate(Process* p) {
+    std::lock_guard<std::mutex> lock(mem_mutex);
+    for (auto it = memory_blocks.begin(); it != memory_blocks.end(); ++it) {
+        if (it->process == p) {
+            it->allocated = false;
+            it->process = nullptr;
+
+            if (it != memory_blocks.begin()) {
+                auto prev = std::prev(it);
+                if (!prev->allocated) {
+                    prev->end = it->end;
+                    memory_blocks.erase(it);
+                    it = prev;
+                }
+            }
+
+            auto next = std::next(it);
+            if (next != memory_blocks.end() && !next->allocated) {
+                it->end = next->end;
+                memory_blocks.erase(next);
+            }
+            break;
+        }
+    }
+}
+
+void MemoryManager::generateMemorySnapshot(uint64_t quantum, const std::string& timestamp) {
+    std::string folder = "memory_snapshots/";
+    std::string filename = folder + "memory_stamp_" + std::to_string(quantum) + ".txt";
+
+    // Create the folder if it doesn't exist (optional)
+    std::filesystem::create_directories(folder);
+
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file: " << filename << "\n";
+        return;
+    }
+
+    file << "Timestamp: " << timestamp << "\n";
+
+    int process_count = 0;
+    uint64_t external_frag = 0;
+
+    for (const auto& block : memory_blocks) {
+        if (!block.allocated) {
+            external_frag += (block.end - block.start + 1);
+        }
+        else {
+            process_count++;
+        }
+    }
+
+    file << "Number of processes in memory: " << process_count << "\n";
+    file << "Total external fragmentation in KB: " << (external_frag / 1024) << "\n\n";
+
+    file << "----end---- = " << total_memory << " (max-overall-mem)\n\n";
+
+    for (auto it = memory_blocks.rbegin(); it != memory_blocks.rend(); ++it) {
+        file << it->end + 1 << "\n";
+        if (it->allocated) {
+            file << it->process->name << "\n";
+        }
+        file << it->start << "\n\n";
+    }
+
+    file << "----start---- = 0\n";
 }
 
 void Scheduler::start() {
@@ -327,57 +418,19 @@ void Scheduler::worker(int core_id) {
 void Scheduler::worker(int core_id) {
     while (!stop_requested) {
         Process* p = nullptr;
-
-        // Check if core has a process assigned
         {
             std::lock_guard<std::mutex> lock(cores_mutex);
             p = cores[core_id];
         }
 
         if (p) {
-            // If process is sleeping, wait
             if (p->isSleeping()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(delay_per_exec));
                 continue;
             }
 
-            p->state = ProcessState::Running;
-
-            // Execute one instruction
-            bool finished = p->executeNextInstruction(core_id);
-
-            // Simulate instruction execution delay
-            /*if (delay_per_exec > 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(delay_per_exec));
-            }*/
-            if (delay_per_exec > 0) {
-                uint64_t target_cycle = cpu_cycles + delay_per_exec;
-                while (cpu_cycles < target_cycle && !stop_requested) {
-                    std::this_thread::sleep_for(std::chrono::microseconds(10)); // yield slightly
-                }
-            }
-
-            if (finished) {
-                // Process finished
-                p->state = ProcessState::Finished;
-                {
-                    std::lock_guard<std::mutex> lock(finished_mutex);
-                    finished_processes.push_back(p);
-                }
-                {
-                    std::lock_guard<std::mutex> lock(cores_mutex);
-                    cores[core_id] = nullptr;
-                }
-                quantum_counters[core_id] = 0; // Reset counter
-                continue;
-            }
-
-            // Round Robin preemption check
-            if (scheduler_type == "rr") {
-                quantum_counters[core_id]++;
-
-                if (quantum_counters[core_id] >= quantum_cycles) {
-                    // Preempt process
+            if (p->memory_start == 0 && p->memory_end == 0) {
+                if (!memory_manager.allocateFirstFit(p)) {
                     {
                         std::lock_guard<std::mutex> lock(queue_mutex);
                         process_queue.push(p);
@@ -387,7 +440,58 @@ void Scheduler::worker(int core_id) {
                         std::lock_guard<std::mutex> lock(cores_mutex);
                         cores[core_id] = nullptr;
                     }
-                    quantum_counters[core_id] = 0; // Reset counter
+                    continue;
+                }
+            }
+
+            p->state = ProcessState::Running;
+
+            if (current_quantum % quantum_cycles == 0) {
+                memory_manager.generateMemorySnapshot(
+                    current_quantum,
+                    formatTimePoint(std::chrono::system_clock::now())
+                );
+            }
+
+            bool finished = p->executeNextInstruction(core_id);
+
+            if (delay_per_exec > 0) {
+                uint64_t target_cycle = cpu_cycles + delay_per_exec;
+                while (cpu_cycles < target_cycle && !stop_requested) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(10));
+                }
+            }
+
+            if (finished) {
+                memory_manager.deallocate(p);
+                p->state = ProcessState::Finished;
+                {
+                    std::lock_guard<std::mutex> lock(finished_mutex);
+                    finished_processes.push_back(p);
+                }
+                {
+                    std::lock_guard<std::mutex> lock(cores_mutex);
+                    cores[core_id] = nullptr;
+                }
+                quantum_counters[core_id] = 0;
+                continue;
+            }
+
+            if (scheduler_type == "rr") {
+                quantum_counters[core_id]++;
+                current_quantum++;
+
+                if (quantum_counters[core_id] >= quantum_cycles) {
+                    {
+                        std::lock_guard<std::mutex> lock(queue_mutex);
+                        process_queue.push(p);
+                        p->state = ProcessState::Waiting;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lock(cores_mutex);
+                        cores[core_id] = nullptr;
+                    }
+                    quantum_counters[core_id] = 0;
                 }
             }
         }

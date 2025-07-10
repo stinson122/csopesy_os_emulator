@@ -14,9 +14,35 @@
 #include <fstream>
 #include <random>
 
+struct MemoryBlock {
+    uint64_t start;
+    uint64_t end;
+    Process* process;
+    bool allocated;
+};
+
+class MemoryManager {
+public:
+    MemoryManager(uint64_t total_mem, uint64_t frame_size, uint64_t proc_mem)
+        : total_memory(total_mem), frame_size(frame_size), proc_memory(proc_mem) {
+        memory_blocks.push_back({ 0, total_mem - 1, nullptr, false });
+    }
+
+    bool allocateFirstFit(Process* p);
+    void deallocate(Process* p);
+    void generateMemorySnapshot(uint64_t quantum, const std::string& timestamp);
+
+private:
+    std::list<MemoryBlock> memory_blocks;
+    std::mutex mem_mutex;
+    uint64_t total_memory;
+    uint64_t frame_size;
+    uint64_t proc_memory;
+};
+
 class Scheduler {
 public:
-    Scheduler(int num_cores);
+    Scheduler(int num_cores, uint64_t total_mem, uint64_t frame_size, uint64_t proc_mem);
     ~Scheduler();
 
     void start();
@@ -30,7 +56,6 @@ public:
 
     static std::string formatTimePoint(const std::chrono::system_clock::time_point& tp);
 
-    // Configuration methods
     void setSchedulerType(const std::string& type) { scheduler_type = type; }
     void setQuantumCycles(uint64_t quantum) { quantum_cycles = quantum; }
     void setMinInstructions(uint64_t min) { min_instructions = min; }
@@ -38,7 +63,6 @@ public:
     void setBatchFrequency(uint64_t freq) { batch_frequency = freq; }
     void setDelay(uint64_t delay) { delay_per_exec = delay; }
 
-    // Add getter methods for private members
     uint64_t getQuantumCycles() const { return quantum_cycles; }
     uint64_t getMinInstructions() const { return min_instructions; }
     uint64_t getMaxInstructions() const { return max_instructions; }
@@ -57,6 +81,9 @@ private:
     std::mutex finished_mutex;
     std::mutex all_processes_mutex;
     std::map<std::string, Process*> all_processes;
+
+    MemoryManager memory_manager;
+    std::atomic<uint64_t> current_quantum{ 0 };
 
     std::thread scheduler_thread;
     std::vector<std::thread> workers;
