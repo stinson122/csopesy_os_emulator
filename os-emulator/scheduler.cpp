@@ -94,16 +94,21 @@ void MemoryManager::generateMemorySnapshot(uint64_t quantum, const std::string& 
     }
 
     file << "Number of processes in memory: " << process_count << "\n";
-    file << "Total external fragmentation in KB: " << (external_frag) << "\n\n";
+    file << "Total external fragmentation in KB: " << external_frag << "\n\n";
+    file << "----end---- = " << total_memory << "\n\n";
 
-    file << "----end---- = " << total_memory << " (max-overall-mem)\n\n";
-
+    // Only print allocated blocks in reverse order
     for (auto it = memory_blocks.rbegin(); it != memory_blocks.rend(); ++it) {
-        file << it->end + 1 << "\n";
         if (it->allocated) {
+            uint64_t block_size = it->end - it->start + 1;
+            // Ensure block size matches process memory requirements
+            if (block_size != proc_memory) {
+                std::cerr << "Warning: Block size mismatch for "
+                    << it->process->name << std::endl;
+            }
             file << it->process->name << "\n";
+            file << it->start << "\n\n";
         }
-        file << it->start << "\n\n";
     }
 
     file << "----start---- = 0\n";
