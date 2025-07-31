@@ -1,6 +1,7 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
+#include "memory_manager.h"
 #include "process.h"
 #include <thread>
 #include <mutex>
@@ -14,35 +15,9 @@
 #include <fstream>
 #include <random>
 
-struct MemoryBlock {
-    uint64_t start;
-    uint64_t end;
-    Process* process;
-    bool allocated;
-};
-
-class MemoryManager {
-public:
-    MemoryManager(uint64_t total_mem, uint64_t frame_size, uint64_t proc_mem)
-        : total_memory(total_mem), frame_size(frame_size), proc_memory(proc_mem) {
-        memory_blocks.push_back({ 0, total_mem - 1, nullptr, false });
-    }
-
-    bool allocateFirstFit(Process* p);
-    void deallocate(Process* p);
-    void generateMemorySnapshot(uint64_t quantum, const std::string& timestamp);
-
-private:
-    std::list<MemoryBlock> memory_blocks;
-    std::mutex mem_mutex;
-    uint64_t total_memory;
-    uint64_t frame_size;
-    uint64_t proc_memory;
-};
-
 class Scheduler {
 public:
-    Scheduler(int num_cores, uint64_t total_mem, uint64_t frame_size, uint64_t proc_mem);
+    Scheduler(int num_cores, uint64_t total_mem, uint64_t frame_size, uint64_t min_mem_per_proc, uint64_t max_mem_per_proc);
     ~Scheduler();
 
     void start();
@@ -66,6 +41,9 @@ public:
     uint64_t getQuantumCycles() const { return quantum_cycles; }
     uint64_t getMinInstructions() const { return min_instructions; }
     uint64_t getMaxInstructions() const { return max_instructions; }
+    uint64_t getMinMemPerProc() const { return min_mem_per_proc; }
+    uint64_t getMaxMemPerProc() const { return max_mem_per_proc; }
+    DemandPagingMemoryManager& getMemoryManager() { return memory_manager; }
 
     void startBatchProcess();
     void stopBatchProcess();
@@ -82,7 +60,7 @@ private:
     std::mutex all_processes_mutex;
     std::map<std::string, Process*> all_processes;
 
-    MemoryManager memory_manager;
+    DemandPagingMemoryManager memory_manager;
     std::atomic<uint64_t> current_quantum{ 0 };
 
     std::thread scheduler_thread;
@@ -100,11 +78,14 @@ private:
     uint64_t min_instructions = 1;
     uint64_t max_instructions = 2000;
     uint64_t delay_per_exec = 100;
+    uint64_t min_mem_per_proc;
+    uint64_t max_mem_per_proc;
     std::atomic<int> process_counter{ 1 };
 
     void schedule();
     void worker(int core_id);
     void batchWorker();
+    bool isProcessMemoryAllocated(Process* process);  // New method to check memory allocation
 };
 
 #endif // SCHEDULER_H

@@ -27,6 +27,9 @@
     <ClCompile Include="header.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="memory_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />
@@ -42,6 +45,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="scheduler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="memory_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

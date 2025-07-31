@@ -34,7 +34,8 @@ struct Config {
     uint64_t delay_per_exec = 100;
     uint64_t max_overall_mem = 16384;
     uint64_t mem_per_frame = 16;
-    uint64_t mem_per_proc = 4096;
+    uint64_t min_mem_per_proc = 2048;
+    uint64_t max_mem_per_proc = 8192;
 };
 
 Config readConfig(const std::string& filename, const std::filesystem::path& exe_dir) {
@@ -96,36 +97,21 @@ Config readConfig(const std::string& filename, const std::filesystem::path& exe_
         else if (key == "mem-per-frame") {
             iss >> config.mem_per_frame;
         }
-        else if (key == "mem-per-proc") {
-            iss >> config.mem_per_proc;
+        else if (key == "min-mem-per-proc") {
+            iss >> config.min_mem_per_proc;
+        }
+        else if (key == "max-mem-per-proc") {
+            iss >> config.max_mem_per_proc;
         }
     }
 
     return config;
 }
-/*
-void processSMI(Process* p) {
-    if (!p) return;
-
-    std::cout << "Process: " << p->name << std::endl;
-    int remaining = p->remaining_instructions.load();
-    std::cout << "Instructions: " << (p->total_instructions - remaining)
-        << "/" << p->total_instructions << std::endl;
-    std::cout << "Status: "
-        << (p->state == ProcessState::Finished ? "Finished" :
-            p->state == ProcessState::Running ? "Running" : "Waiting")
-        << std::endl;
-
-    if (p->state == ProcessState::Finished) {
-        std::cout << "Finished!" << std::endl;
-    }
-}*/
 
 void processSMI(Process* p) {
     if (!p) return;
 
     std::cout << "Process name: " << p->name << std::endl;
-    //std::cout << "ID: " << p->core_id << std::endl;
     std::cout << "Logs:" << std::endl;
 
     // Print log messages
@@ -214,7 +200,7 @@ void drawScreen(std::string processName) {
         }
         else if (command == "process-smi") {
             if (p) {
-                processSMI(p);
+                scheduler->getMemoryManager().generateProcessSMI();
             }
             else {
                 std::cout << "Process not found." << std::endl;
@@ -235,15 +221,6 @@ int main(int argc, char* argv[]) {
     if (argc > 0) {
         exe_dir = std::filesystem::path(argv[0]).parent_path();
     }
-    /*
-    // Start CPU cycle counter thread
-    std::thread cycle_counter([]() {
-        while (true) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            cpu_cycles++;
-        }
-        });
-    */
 
     std::thread cycle_counter([]() {
         auto last_time = std::chrono::steady_clock::now();
@@ -283,7 +260,7 @@ int main(int argc, char* argv[]) {
                 // Pass executable directory to readConfig
                 Config config = readConfig("config.txt", exe_dir);
                 scheduler = new Scheduler(config.num_cpu, config.max_overall_mem,
-                    config.mem_per_frame, config.mem_per_proc);
+                    config.mem_per_frame, config.min_mem_per_proc, config.max_mem_per_proc);
                 scheduler->setSchedulerType(config.scheduler_type);
                 scheduler->setQuantumCycles(config.quantum_cycles);
                 scheduler->setMinInstructions(config.min_instructions);
@@ -325,12 +302,23 @@ int main(int argc, char* argv[]) {
                                 scheduler->getMaxInstructions()
                             );
                             uint64_t instructions = dist(gen);
-                            Process* p = new Process(processName, instructions);
+
+                            std::uniform_int_distribution<uint64_t> mem_dist(
+                                scheduler->getMinMemPerProc(),
+                                scheduler->getMaxMemPerProc()
+                            );
+                            uint64_t memory_size = mem_dist(gen);
+
+                            Process* p = new Process(processName, instructions, memory_size);
+
+                            // Always add the process to scheduler, regardless of memory allocation
+                            // The scheduler will handle memory allocation when the process is scheduled
                             scheduler->addProcess(p);
                             std::cout << "Created new process: " << processName << std::endl;
                         }
                         else {
-                            std::cout << "Process " << processName << " already exists." << std::endl; continue;
+                            std::cout << "Process " << processName << " already exists." << std::endl;
+                            continue;
                         }
                     }
                     else if (flag == "-r") {
@@ -343,11 +331,11 @@ int main(int argc, char* argv[]) {
 
                     clearScreen();
                     std::cout << "Displaying process: " << processName << std::endl;
-                    
+
                     if (flag == "-s") {
                         drawScreen(processName);
-                    } else if (flag == "-r") {
-                        //viewProcessScreen(processName);
+                    }
+                    else if (flag == "-r") {
                         drawScreen(processName);
                     }
                 }
@@ -381,6 +369,20 @@ int main(int argc, char* argv[]) {
             else {
                 scheduler->printStatus(true);
                 std::cout << "Report saved to csopesy-log.txt" << std::endl;
+            }
+        }
+        else if (command == "process-smi") {
+            if (!initialized) {
+                std::cout << "Please run 'initialize' first." << std::endl;
+            } else {
+                scheduler->getMemoryManager().generateProcessSMI();
+            }
+        }
+        else if (command == "vmstat") {
+            if (!initialized) {
+                std::cout << "Please run 'initialize' first." << std::endl;
+            } else {
+                scheduler->getMemoryManager().generateVMStat();
             }
         }
         else {

@@ -6,10 +6,14 @@
 #include <fstream>
 #include <random>
 
-Scheduler::Scheduler(int num_cores, uint64_t total_mem, uint64_t frame_size, uint64_t proc_mem)
+Scheduler::Scheduler(int num_cores, uint64_t total_mem, uint64_t frame_size,
+    uint64_t min_mem_per_proc, uint64_t max_mem_per_proc)
     : num_cores(num_cores), cores(num_cores, nullptr),
     stop_requested(false), is_running(false),
-    memory_manager(total_mem, frame_size, proc_mem) {}
+    memory_manager(total_mem, frame_size, min_mem_per_proc, max_mem_per_proc),
+    min_mem_per_proc(min_mem_per_proc),
+    max_mem_per_proc(max_mem_per_proc)
+{}
 
 Scheduler::~Scheduler() {
     stop();
@@ -18,100 +22,6 @@ Scheduler::~Scheduler() {
     for (auto& p : all_processes) {
         delete p.second;
     }
-}
-
-bool MemoryManager::allocateFirstFit(Process* p) {
-    std::lock_guard<std::mutex> lock(mem_mutex);
-    for (auto it = memory_blocks.begin(); it != memory_blocks.end(); ++it) {
-        if (!it->allocated && (it->end - it->start + 1) >= proc_memory) {
-            uint64_t remaining = (it->end - it->start + 1) - proc_memory;
-            if (remaining > 0) {
-                MemoryBlock new_block = { it->start + proc_memory, it->end, nullptr, false };
-                memory_blocks.insert(std::next(it), new_block);
-            }
-            it->end = it->start + proc_memory - 1;
-            it->process = p;
-            it->allocated = true;
-            p->memory_start = it->start;
-            p->memory_end = it->end;
-            return true;
-        }
-    }
-    return false;
-}
-
-void MemoryManager::deallocate(Process* p) {
-    std::lock_guard<std::mutex> lock(mem_mutex);
-    for (auto it = memory_blocks.begin(); it != memory_blocks.end(); ++it) {
-        if (it->process == p) {
-            it->allocated = false;
-            it->process = nullptr;
-
-            if (it != memory_blocks.begin()) {
-                auto prev = std::prev(it);
-                if (!prev->allocated) {
-                    prev->end = it->end;
-                    memory_blocks.erase(it);
-                    it = prev;
-                }
-            }
-
-            auto next = std::next(it);
-            if (next != memory_blocks.end() && !next->allocated) {
-                it->end = next->end;
-                memory_blocks.erase(next);
-            }
-            break;
-        }
-    }
-}
-
-void MemoryManager::generateMemorySnapshot(uint64_t quantum, const std::string& timestamp) {
-    std::string folder = "memory_snapshots/";
-    std::string filename = folder + "memory_stamp_" + std::to_string(quantum) + ".txt";
-
-    // Create the folder if it doesn't exist (optional)
-    std::filesystem::create_directories(folder);
-
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open file: " << filename << "\n";
-        return;
-    }
-
-    file << "Timestamp: " << timestamp << "\n";
-
-    int process_count = 0;
-    uint64_t external_frag = 0;
-
-    for (const auto& block : memory_blocks) {
-        if (!block.allocated) {
-            external_frag += (block.end - block.start + 1);
-        }
-        else {
-            process_count++;
-        }
-    }
-
-    file << "Number of processes in memory: " << process_count << "\n";
-    file << "Total external fragmentation in KB: " << external_frag << "\n\n";
-    file << "----end---- = " << total_memory << "\n\n";
-
-    // Only print allocated blocks in reverse order
-    for (auto it = memory_blocks.rbegin(); it != memory_blocks.rend(); ++it) {
-        if (it->allocated) {
-            uint64_t block_size = it->end - it->start + 1;
-            // Ensure block size matches process memory requirements
-            if (block_size != proc_memory) {
-                std::cerr << "Warning: Block size mismatch for "
-                    << it->process->name << std::endl;
-            }
-            file << it->process->name << "\n";
-            file << it->start << "\n\n";
-        }
-    }
-
-    file << "----start---- = 0\n";
 }
 
 void Scheduler::start() {
@@ -162,7 +72,6 @@ int Scheduler::getActiveCores() {
     std::lock_guard<std::mutex> lock(cores_mutex);
     int count = 0;
     for (int i = 0; i < num_cores; i++) {
-        //if (cores[i] != nullptr) {
         if (cores[i] != nullptr && cores[i]->state == ProcessState::Running) {
             count++;
         }
@@ -201,6 +110,13 @@ void Scheduler::printStatus(bool toFile) {
     *out << "Active Cores: " << getActiveCores() << std::endl;
     *out << "Cores Available: " << (num_cores - getActiveCores()) << std::endl;
     *out << "Processes in queue: " << getQueueSize() << std::endl;
+
+    // Add memory information
+    *out << "Memory Usage: " << memory_manager.getUsedMemory() << " / "
+        << memory_manager.getTotalMemory() << " bytes" << std::endl;
+    *out << "Memory Utilization: " << std::fixed << std::setprecision(1)
+        << (static_cast<double>(memory_manager.getUsedMemory()) / memory_manager.getTotalMemory() * 100.0) << "%" << std::endl;
+
     *out << "--------------------------------------" << std::endl;
     *out << "Running processes:" << std::endl;
 
@@ -213,7 +129,8 @@ void Scheduler::printStatus(bool toFile) {
                 *out << p->name << "     ("
                     << formatTimePoint(p->start_time)
                     << ")     Core: " << i << "     "
-                    << done << " / " << p->total_instructions << std::endl;
+                    << done << " / " << p->total_instructions
+                    << "     Memory: " << p->getMemorySize() << " bytes" << std::endl;
             }
         }
     }
@@ -249,216 +166,159 @@ void Scheduler::stopBatchProcess() {
     batch_running = false;
 }
 
- // VER 1
 void Scheduler::batchWorker() {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
+    std::uniform_int_distribution<uint64_t> mem_dist(min_mem_per_proc, max_mem_per_proc);
 
     while (!stop_batch) {
-        // Generate a new process
         std::string name = "p" + std::to_string(process_counter++);
         uint64_t instructions = dist(gen);
-        Process* p = new Process(name, instructions);
+        uint64_t memory_size = mem_dist(gen);
+
+        // Round to nearest multiple of frame size
+        uint64_t frame_size = memory_manager.getFrameSize();
+        uint64_t pages = (memory_size + frame_size - 1) / frame_size;
+        memory_size = pages * frame_size;
+
+        // Create process without allocating memory immediately
+        // Memory will be allocated when the process is scheduled to run
+        Process* p = new Process(name, instructions, memory_size);
         addProcess(p);
 
-        // Sleep for batch frequency (simulated)
-        /*for (uint64_t i = 0; i < batch_frequency && !stop_batch; i++) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }*/
         uint64_t target_cycle = cpu_cycles + batch_frequency;
         while (cpu_cycles < target_cycle && !stop_batch) {
-            std::this_thread::sleep_for(std::chrono::microseconds(10)); // Yield a little
-        }
-    }
-} 
-/*
-// VER 2
-void Scheduler::batchWorker() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
-    uint64_t cycles_waited = 0;
-
-    while (!stop_batch) {
-        // Wait for the required number of CPU cycles
-        while (cycles_waited < batch_frequency && !stop_batch) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            cycles_waited++;
-        }
-
-        if (stop_batch) break;
-
-        // Generate a new process
-        std::string name = "p" + std::to_string(process_counter++);
-        uint64_t instructions = dist(gen);
-        Process* p = new Process(name, instructions);
-        addProcess(p);
-
-        cycles_waited = 0;
-    }
-}*/
-
-// most robust VER so far
-//void Scheduler::batchWorker() {
-//    std::random_device rd;
-//    std::mt19937 gen(rd());
-//    std::uniform_int_distribution<uint64_t> dist(min_instructions, max_instructions);
-//
-//    uint64_t last_cycle = cpu_cycles.load();
-//
-//    while (!stop_batch) {
-//        // Wait for the required number of CPU cycles
-//        while ((cpu_cycles.load() - last_cycle) < batch_frequency && !stop_batch) {
-//            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-//        }
-//
-//        if (stop_batch) break;
-//
-//        // Generate a new process
-//        std::string name = "p" + std::to_string(process_counter++);
-//        uint64_t instructions = dist(gen);
-//        Process* p = new Process(name, instructions);
-//        addProcess(p);
-//
-//        last_cycle = cpu_cycles.load();
-//    }
-//}
-
-void Scheduler::schedule() {
-    while (!stop_requested) {
-        std::unique_lock<std::mutex> lock(queue_mutex);
-        if (!process_queue.empty()) {
-            Process* p = process_queue.front();
-            process_queue.pop();
-            lock.unlock();
-
-            bool assigned = false;
-            while (!assigned && !stop_requested) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                std::lock_guard<std::mutex> core_lock(cores_mutex);
-                for (int i = 0; i < num_cores; i++) {
-                    if (cores[i] == nullptr) {
-                        cores[i] = p;
-                        p->state = ProcessState::Running;
-                        p->core_id = i;
-                        quantum_counters[i] = 0;
-                        if (p->start_time.time_since_epoch().count() == 0) {
-                            p->start_time = std::chrono::system_clock::now();
-                        }
-                        assigned = true;
-                        break;
-                    }
-                }
-            }
-        }
-        else {
-            lock.unlock();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
     }
 }
 
-/*
+void Scheduler::schedule() {
+    while (!stop_requested) {
+        std::unique_lock<std::mutex> queue_lock(queue_mutex);
+
+        // Check if there are processes waiting in the queue
+        if (process_queue.empty()) {
+            queue_lock.unlock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+
+        // Find an available core
+        std::unique_lock<std::mutex> core_lock(cores_mutex);
+        int available_core = -1;
+        for (int i = 0; i < num_cores; i++) {
+            if (cores[i] == nullptr) {
+                available_core = i;
+                break;
+            }
+        }
+
+        if (available_core == -1) {
+            // No cores available, wait
+            core_lock.unlock();
+            queue_lock.unlock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+
+        // Try to assign processes to available cores
+        bool assigned = false;
+        std::queue<Process*> temp_queue;
+
+        while (!process_queue.empty() && !assigned) {
+            Process* p = process_queue.front();
+            process_queue.pop();
+
+            // Check if process already has memory allocated
+            if (isProcessMemoryAllocated(p)) {
+                // Process already has memory allocated, assign to core
+                cores[available_core] = p;
+                p->state = ProcessState::Running;
+                p->core_id = available_core;
+                quantum_counters[available_core] = 0;
+                if (p->start_time.time_since_epoch().count() == 0) {
+                    p->start_time = std::chrono::system_clock::now();
+                }
+                assigned = true;
+            }
+            else {
+                // Try to allocate memory for the process
+                uint64_t required_memory = p->getMemorySize();
+                uint64_t available_memory = memory_manager.getFreeMemory();
+
+                if (memory_manager.allocateProcess(p, required_memory)) {
+                    // Memory allocation successful, can assign to core
+                    cores[available_core] = p;
+                    p->state = ProcessState::Running;
+                    p->core_id = available_core;
+                    quantum_counters[available_core] = 0;
+                    if (p->start_time.time_since_epoch().count() == 0) {
+                        p->start_time = std::chrono::system_clock::now();
+                    }
+                    assigned = true;
+                }
+                else {
+                    // Memory allocation failed, put back in temp queue to try later
+                    temp_queue.push(p);
+                }
+            }
+        }
+
+        // Put back any processes that couldn't be scheduled due to memory constraints
+        while (!temp_queue.empty()) {
+            process_queue.push(temp_queue.front());
+            temp_queue.pop();
+        }
+
+        core_lock.unlock();
+        queue_lock.unlock();
+
+        if (!assigned) {
+            // No process could be scheduled, wait a bit longer
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    }
+}
+
+bool Scheduler::isProcessMemoryAllocated(Process* process) {
+    return memory_manager.isProcessAllocated(process);
+}
+
 void Scheduler::worker(int core_id) {
     while (!stop_requested) {
         Process* p = nullptr;
-
-        // Check if core has a process assigned
         {
             std::lock_guard<std::mutex> lock(cores_mutex);
             p = cores[core_id];
         }
 
         if (p) {
-            // If process is sleeping, wait
-            if (p->isSleeping()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                continue;
-            }
-
-            p->state = ProcessState::Running;
-
-            // Execute one instruction
-            if (p->executeNextInstruction(core_id)) {
-                // Process finished
-                p->state = ProcessState::Finished;
+            // Double-check that process still has memory allocated
+            if (!isProcessMemoryAllocated(p)) {
+                // Process lost memory allocation, remove from core and put back in queue
                 {
-                    std::lock_guard<std::mutex> lock(finished_mutex);
-                    finished_processes.push_back(p);
+                    std::lock_guard<std::mutex> lock(queue_mutex);
+                    process_queue.push(p);
+                    p->state = ProcessState::Waiting;
                 }
                 {
                     std::lock_guard<std::mutex> lock(cores_mutex);
                     cores[core_id] = nullptr;
                 }
-                quantum_counters[core_id] = 0; // Reset counter
+                quantum_counters[core_id] = 0;
                 continue;
             }
 
-            // Round Robin preemption check
-            if (scheduler_type == "rr") {
-                quantum_counters[core_id]++;
-
-                if (quantum_counters[core_id] >= quantum_cycles) {
-                    // Preempt process
-                    {
-                        std::lock_guard<std::mutex> lock(queue_mutex);
-                        process_queue.push(p);
-                        p->state = ProcessState::Waiting;
-                    }
-                    {
-                        std::lock_guard<std::mutex> lock(cores_mutex);
-                        cores[core_id] = nullptr;
-                    }
-                    quantum_counters[core_id] = 0; // Reset counter
-                }
-            }
-        }
-        else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-}*/
-
-void Scheduler::worker(int core_id) {
-    while (!stop_requested) {
-        Process* p = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(cores_mutex);
-            p = cores[core_id];
-        }
-
-        if (p) {
             if (p->isSleeping()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(delay_per_exec));
                 continue;
             }
 
-            if (p->memory_start == 0 && p->memory_end == 0) {
-                if (!memory_manager.allocateFirstFit(p)) {
-                    {
-                        std::lock_guard<std::mutex> lock(queue_mutex);
-                        process_queue.push(p);
-                        p->state = ProcessState::Waiting;
-                    }
-                    {
-                        std::lock_guard<std::mutex> lock(cores_mutex);
-                        cores[core_id] = nullptr;
-                    }
-                    continue;
-                }
-            }
-
             p->state = ProcessState::Running;
 
-            if (current_quantum % quantum_cycles == 0) {
-                memory_manager.generateMemorySnapshot(
-                    current_quantum,
-                    formatTimePoint(std::chrono::system_clock::now())
-                );
-            }
-
-            bool finished = p->executeNextInstruction(core_id);
+            bool finished = p->executeNextInstruction(core_id, &memory_manager);
 
             if (delay_per_exec > 0) {
                 uint64_t target_cycle = cpu_cycles + delay_per_exec;
@@ -467,8 +327,9 @@ void Scheduler::worker(int core_id) {
                 }
             }
 
-            if (finished) {
-                memory_manager.deallocate(p);
+            if (finished || p->state == ProcessState::Finished) {
+                // Deallocate memory before marking as finished
+                memory_manager.deallocateProcess(p);
                 p->state = ProcessState::Finished;
                 {
                     std::lock_guard<std::mutex> lock(finished_mutex);
@@ -482,6 +343,7 @@ void Scheduler::worker(int core_id) {
                 continue;
             }
 
+            // Handle round-robin scheduling if configured
             if (scheduler_type == "rr") {
                 quantum_counters[core_id]++;
                 current_quantum++;
