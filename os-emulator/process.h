@@ -25,7 +25,7 @@ class DemandPagingMemoryManager;
 class Process {
 public:
     Process(const std::string& name, int total_instructions, uint64_t memory_size = 0);
-    //Process(const std::string& name, const std::string& custom_instructions, uint64_t memory_size);
+
     //~Process();
 
     void logPrint(const std::string& message, int core,
@@ -35,7 +35,7 @@ public:
     // Instruction execution
     bool executeNextInstruction(int core_id, DemandPagingMemoryManager* memory_manager = nullptr);
     void generateRandomInstructions();
-    void parseCustomInstructions(const std::string& instructions_str);
+    void parseCustomInstructions(const std::string& instruction_str);
 
     // Variable operations
     void declareVariable(const std::string& name, uint16_t value);
@@ -47,6 +47,7 @@ public:
     void setMemoryManager(DemandPagingMemoryManager* manager) { memory_manager = manager; }
     uint64_t getMemorySize() const { return memory_size; }
     bool hasMemoryViolation() const { return memory_violation; }
+
     std::string getMemoryViolationInfo() const { return violation_info; }
     std::atomic<bool> memory_wait_logged{ false }; // Add this line
 
@@ -91,6 +92,9 @@ private:
     void logMemoryViolation(uint64_t address, const std::string& operation);
     bool readMemory(uint64_t address, uint16_t& value);
     bool writeMemory(uint64_t address, uint16_t value);
+
+    // Helper function to process PRINT content with variable substitution
+    std::string processPrintContent(const std::string& content) const;
 };
 
 #endif // PROCESS_H

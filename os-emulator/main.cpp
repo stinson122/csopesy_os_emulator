@@ -200,7 +200,8 @@ void drawScreen(std::string processName) {
         }
         else if (command == "process-smi") {
             if (p) {
-                scheduler->getMemoryManager().generateProcessSMI();
+                //scheduler->getMemoryManager().generateProcessSMI();
+                processSMI(p);
             }
             else {
                 std::cout << "Process not found." << std::endl;
@@ -289,11 +290,24 @@ int main(int argc, char* argv[]) {
             }
             else {
                 iss >> processName;
-                if ((flag == "-s" || flag == "-r") && !processName.empty()) {
+                if ((flag == "-s" || flag == "-c" || flag == "-r") && !processName.empty()) {
                     Process* existingProcess = scheduler->getProcess(processName);
 
                     if (flag == "-s") {
-                        // Create new process only if it doesn't exist
+                        // Read memory size for -s command
+                        uint64_t memory_size;
+                        if (!(iss >> memory_size)) {
+                            std::cout << "Missing memory size parameter. Usage: screen -s <name> <memory_size>" << std::endl;
+                            continue;
+                        }
+
+                        // Validate memory size
+                        if (memory_size < 64 || memory_size > 65536 || (memory_size & (memory_size - 1))) {
+                            std::cout << "Invalid memory allocation. Must be power of 2 between 64 and 65536 bytes." << std::endl;
+                            continue;
+                        }
+
+                        Process* existingProcess = scheduler->getProcess(processName);
                         if (!existingProcess) {
                             std::random_device rd;
                             std::mt19937 gen(rd());
@@ -303,23 +317,57 @@ int main(int argc, char* argv[]) {
                             );
                             uint64_t instructions = dist(gen);
 
-                            std::uniform_int_distribution<uint64_t> mem_dist(
-                                scheduler->getMinMemPerProc(),
-                                scheduler->getMaxMemPerProc()
-                            );
-                            uint64_t memory_size = mem_dist(gen);
-
                             Process* p = new Process(processName, instructions, memory_size);
-
-                            // Always add the process to scheduler, regardless of memory allocation
-                            // The scheduler will handle memory allocation when the process is scheduled
                             scheduler->addProcess(p);
-                            std::cout << "Created new process: " << processName << std::endl;
+                            std::cout << "Created new process: " << processName << " with " << memory_size << " bytes memory" << std::endl;
                         }
                         else {
                             std::cout << "Process " << processName << " already exists." << std::endl;
                             continue;
                         }
+                    }
+                    else if (flag == "-c") {
+                        // Read memory size and instructions for -c command
+                        uint64_t memory_size;
+                        std::string instructions;
+                        if (!(iss >> memory_size)) {
+                            std::cout << "Missing memory size parameter. Usage: screen -c <name> <memory_size> \"<instructions>\"" << std::endl;
+                            continue;
+                        }
+
+                        // Read instructions (could contain spaces, so read until quote)
+                        char quote;
+                        iss >> quote; // read opening quote
+                        std::getline(iss, instructions, '"'); // read until closing quote
+
+                        // Validate memory size
+                        if (memory_size < 64 || memory_size > 65536 || (memory_size & (memory_size - 1))) {
+                            std::cout << "Invalid memory allocation. Must be power of 2 between 64 and 65536 bytes." << std::endl;
+                            continue;
+                        }
+
+                        Process* existingProcess = scheduler->getProcess(processName);
+                        if (!existingProcess) {
+                            try {
+                                Process* p = new Process(processName, 0, memory_size); // 0 instructions initially
+                                p->parseCustomInstructions(instructions); // This will set the actual instructions
+                                scheduler->addProcess(p);
+                                std::cout << "Created new process: " << processName << " with " << memory_size
+                                    << " bytes memory and custom instructions" << std::endl;
+                            }
+                            catch (const std::exception& e) {
+                                std::cout << "Error creating process: " << e.what() << std::endl;
+                                continue;
+                            }
+                        }
+                        else {
+                            std::cout << "Process " << processName << " already exists." << std::endl;
+                            continue;
+                        }
+
+                        clearScreen();
+                        std::cout << "Displaying process: " << processName << std::endl;
+                        drawScreen(processName);
                     }
                     else if (flag == "-r") {
                         // For -r, only attach if process exists and is not finished

@@ -114,12 +114,9 @@ bool DemandPagingMemoryManager::readMemory(Process* process, uint64_t virtual_ad
     uint64_t physical_addr = getPhysicalAddress(it->second.frame_number, offset);
     if (physical_addr + sizeof(uint16_t) <= physical_memory.size()) {
         value = *reinterpret_cast<uint16_t*>(&physical_memory[physical_addr]);
+        return true;
     }
-    else {
-        value = 0; // Uninitialized memory
-    }
-
-    return true;
+    return false;
 }
 
 bool DemandPagingMemoryManager::writeMemory(Process* process, uint64_t virtual_address, uint16_t value) {

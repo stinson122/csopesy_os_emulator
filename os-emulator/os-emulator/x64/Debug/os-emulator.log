@@ -1,2 +1,3 @@
-﻿  memory_manager.cpp
-  os-emulator.vcxproj -> D:\Documents\Github\csopesy_os_emulator\os-emulator\x64\Debug\os-emulator.exe
+﻿  process.cpp
+C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\process.cpp(478,40): warning C4244: 'initializing': conversion from 'unsigned long' to 'uint16_t', possible loss of data
+  os-emulator.vcxproj -> C:\Users\Nikolai\source\repos\csopesy_os_emulator\os-emulator\x64\Debug\os-emulator.exe
