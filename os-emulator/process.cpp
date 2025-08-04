@@ -26,12 +26,6 @@ bool Process::isValidMemoryAccess(uint64_t address) {
         return false;
     }
 
-    // For WRITE operations, ensure we're not writing to symbol table space
-    if (address < SYMBOL_TABLE_SIZE) {
-        logMemoryViolation(address, "write to protected area");
-        return false;
-    }
-
     return true;
 }
 
@@ -213,57 +207,13 @@ bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* mem
     auto executeInstruction = [&](const Instruction& instr) {
         if (instr.type == "PRINT") {
             try {
-                std::string message = std::get<std::string>(instr.operands[0]);
+                // Get the full content string (e.g., "\"Result: \" + varC")
+                std::string content = std::get<std::string>(instr.operands[0]);
 
-                // Simple PRINT without concatenation
-                if (message.find('+') == std::string::npos) {
-                    // Remove surrounding quotes if present
-                    if (message.size() >= 2 && message.front() == '"' && message.back() == '"') {
-                        message = message.substr(1, message.size() - 2);
-                    }
-                    logPrint(message, core_id, std::chrono::system_clock::now());
-                }
-                // PRINT with concatenation
-                else {
-                    std::vector<std::string> parts;
-                    size_t start = 0;
-                    size_t end = message.find('+');
+                // Use the robust helper function to parse it and substitute variables
+                std::string final_message = processPrintContent(content);
 
-                    // Split by + operators
-                    while (end != std::string::npos) {
-                        std::string part = message.substr(start, end - start);
-                        // Trim whitespace and quotes
-                        part.erase(0, part.find_first_not_of(" \t\n\r\f\v"));
-                        part.erase(part.find_last_not_of(" \t\n\r\f\v") + 1);
-                        if (part.size() >= 2 && part.front() == '"' && part.back() == '"') {
-                            part = part.substr(1, part.size() - 2);
-                        }
-                        parts.push_back(part);
-                        start = end + 1;
-                        end = message.find('+', start);
-                    }
-                    // Add last part
-                    std::string last_part = message.substr(start);
-                    last_part.erase(0, last_part.find_first_not_of(" \t\n\r\f\v"));
-                    last_part.erase(last_part.find_last_not_of(" \t\n\r\f\v") + 1);
-                    if (last_part.size() >= 2 && last_part.front() == '"' && last_part.back() == '"') {
-                        last_part = last_part.substr(1, last_part.size() - 2);
-                    }
-                    parts.push_back(last_part);
-
-                    // Build final message
-                    std::string final_message;
-                    for (const auto& part : parts) {
-                        if (variables.find(part) != variables.end()) {
-                            final_message += std::to_string(getVariableValue(part));
-                        }
-                        else {
-                            final_message += part;
-                        }
-                    }
-
-                    logPrint(final_message, core_id, std::chrono::system_clock::now());
-                }
+                logPrint(final_message, core_id, std::chrono::system_clock::now());
             }
             catch (const std::bad_variant_access&) {
                 logPrint("PRINT ERROR: Invalid operand", core_id, std::chrono::system_clock::now());
@@ -311,10 +261,16 @@ bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* mem
         }
         else if (instr.type == "WRITE") {
             std::string addr_str = std::get<std::string>(instr.operands[0]);
-            uint16_t value = getOperandValue(instr.operands[1]); // Use getOperandValue to handle variables
-            uint64_t address = parseHexAddress(addr_str.substr(2)); // Remove "0x" prefix
+            uint16_t value = getOperandValue(instr.operands[1]);
+            uint64_t address = parseHexAddress(addr_str.substr(2));
 
-            if (!writeMemory(address, value)) {
+            // Add the symbol table protection check here
+            if (address < SYMBOL_TABLE_SIZE) {
+                memory_violation = true;
+                violation_info = "Memory write violation: cannot write to protected symbol table area.";
+                state = ProcessState::Crashed;
+            }
+            else if (!writeMemory(address, value)) {
                 memory_violation = true;
                 violation_info = "Memory write violation at address: " + addr_str;
                 state = ProcessState::Crashed;
