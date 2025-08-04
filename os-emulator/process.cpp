@@ -21,11 +21,10 @@ uint64_t Process::parseHexAddress(const std::string& hex_str) const {
 // Check if a memory address is valid for this process
 bool Process::isValidMemoryAccess(uint64_t address) {
     // Ensure address is within process memory bounds and properly aligned
-    if (address >= memory_size) {
+    if (address >= memory_size || (address % sizeof(uint16_t)) != 0) {
         logMemoryViolation(address, "access");
         return false;
     }
-
     return true;
 }
 
@@ -264,19 +263,23 @@ bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* mem
             uint16_t value = getOperandValue(instr.operands[1]);
             uint64_t address = parseHexAddress(addr_str.substr(2));
 
-            // Add the symbol table protection check here
+            // Ensure address is word-aligned and within valid range
             if (address < SYMBOL_TABLE_SIZE) {
                 memory_violation = true;
                 violation_info = "Memory write violation: cannot write to protected symbol table area.";
                 state = ProcessState::Crashed;
             }
-            else if (!writeMemory(address, value)) {
+            else if (!isValidMemoryAccess(address)) {
                 memory_violation = true;
                 violation_info = "Memory write violation at address: " + addr_str;
                 state = ProcessState::Crashed;
             }
+            else if (!writeMemory(address, value)) {
+                memory_violation = true;
+                violation_info = "Memory write failed at address: " + addr_str;
+                state = ProcessState::Crashed;
+            }
             else {
-                // Debug output to verify successful write
                 logPrint("DEBUG: Wrote value " + std::to_string(value) + " to address " + addr_str,
                     core_id, std::chrono::system_clock::now());
             }
