@@ -28,6 +28,8 @@ public:
 
     //~Process();
 
+    static std::string getTimeStamp(const std::chrono::system_clock::time_point& tp);
+
     void logPrint(const std::string& message, int core,
         const std::chrono::system_clock::time_point& time);
     std::vector<std::string> getLogMessages();
@@ -47,6 +49,10 @@ public:
     void setMemoryManager(DemandPagingMemoryManager* manager) { memory_manager = manager; }
     uint64_t getMemorySize() const { return memory_size; }
     bool hasMemoryViolation() const { return memory_violation; }
+
+    //memory management
+    bool memory_violation = false;
+    std::string violation_info;
 
     std::string getMemoryViolationInfo() const { return violation_info; }
     std::atomic<bool> memory_wait_logged{ false }; // Add this line
@@ -81,8 +87,6 @@ private:
     // Memory management
     uint64_t memory_size;
     DemandPagingMemoryManager* memory_manager = nullptr;
-    bool memory_violation = false;
-    std::string violation_info;
     static const uint64_t SYMBOL_TABLE_SIZE = 64; // 64 bytes for symbol table
     uint64_t symbol_table_used = 0; // Track used bytes in symbol table
 

@@ -18,6 +18,13 @@ uint64_t Process::parseHexAddress(const std::string& hex_str) const {
     }
 }
 
+//Get hh:mm:ss time
+std::string Process::getTimeStamp(const std::chrono::system_clock::time_point& tp) {
+    auto zt = std::chrono::zoned_time{ std::chrono::current_zone(),
+        std::chrono::time_point_cast<std::chrono::seconds>(tp) };
+    return std::format("{:%I:%M:%S%p}", zt);
+}
+
 // Check if a memory address is valid for this process
 bool Process::isValidMemoryAccess(uint64_t address) {
     // Ensure address is within process memory bounds and properly aligned
@@ -167,6 +174,9 @@ std::string Process::processPrintContent(const std::string& content) const {
 }
 
 bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* memory_manager) {
+    if (state == ProcessState::Crashed) {
+        return true;
+    }
 
     if (current_instruction < instructions.size()) {
         auto& instr = instructions[current_instruction];
@@ -254,7 +264,7 @@ bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* mem
             }
             else {
                 memory_violation = true;
-                violation_info = "Memory read violation at address: " + addr_str;
+                violation_info = "Memory read violation at address: " + addr_str + " at time: " + getTimeStamp(std::chrono::system_clock::now());
                 state = ProcessState::Crashed;
             }
         }
@@ -268,16 +278,19 @@ bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* mem
                 memory_violation = true;
                 violation_info = "Memory write violation: cannot write to protected symbol table area.";
                 state = ProcessState::Crashed;
+                return true;
             }
             else if (!isValidMemoryAccess(address)) {
                 memory_violation = true;
-                violation_info = "Memory write violation at address: " + addr_str;
+                violation_info = "Memory write violation at address: " + addr_str + " at time: " + getTimeStamp(std::chrono::system_clock::now());
                 state = ProcessState::Crashed;
+                return true;
             }
             else if (!writeMemory(address, value)) {
                 memory_violation = true;
-                violation_info = "Memory write failed at address: " + addr_str;
+                violation_info = "Memory write failed at address: " + addr_str + " at time: " + getTimeStamp(std::chrono::system_clock::now());
                 state = ProcessState::Crashed;
+                return true;
             }
             else {
                 logPrint("DEBUG: Wrote value " + std::to_string(value) + " to address " + addr_str,

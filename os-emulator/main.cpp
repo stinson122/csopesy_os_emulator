@@ -184,6 +184,23 @@ void drawScreen(std::string processName) {
         int remaining = p->remaining_instructions.load();
         std::cout << "Instruction: " << (p->total_instructions - remaining)
             << "/" << p->total_instructions << std::endl;
+        if (p->state == ProcessState::Crashed && p->memory_violation) {
+            size_t addr_pos = p->violation_info.find("address: ");
+            size_t time_pos = p->violation_info.find("at time: ");
+            if (addr_pos != std::string::npos and time_pos != std::string::npos) { //if address found
+                std::istringstream iss(p->violation_info.substr(addr_pos + 9));
+                std::string address;
+                iss >> address;
+                std::istringstream iss_time(p->violation_info.substr(time_pos + 9));
+                std::string time;
+                iss_time >> time;
+                std::cout << "Process " << p->name << " shut down due to memory access violation error that occurred at " << time << ". " 
+                          << address << " invalid. " << std::endl << p->violation_info << std::endl;
+            } else {
+                std::cout << "Process " << p->name << " shut down due to memory access violation error."  << std::endl
+                          << p->violation_info << std::endl;
+            }
+        }
     }
     std::cout << "TimeStamp: " << Scheduler::formatTimePoint(std::chrono::system_clock::now()) << std::endl;
 

@@ -327,6 +327,15 @@ void Scheduler::worker(int core_id) {
                 }
             }
 
+            if (p->state == ProcessState::Crashed) {
+                {
+                    std::lock_guard<std::mutex> lock(cores_mutex);
+                    cores[core_id] = nullptr;
+                }
+                quantum_counters[core_id] = 0;
+                continue;
+            }
+
             if (finished || p->state == ProcessState::Finished) {
                 // Deallocate memory before marking as finished
                 memory_manager.deallocateProcess(p);
