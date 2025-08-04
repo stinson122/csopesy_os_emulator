@@ -335,10 +335,33 @@ int main(int argc, char* argv[]) {
                             continue;
                         }
 
-                        // Read instructions (could contain spaces, so read until quote)
-                        char quote;
-                        iss >> quote; // read opening quote
-                        std::getline(iss, instructions, '"'); // read until closing quote
+                        // Read the rest of the command line to get the instruction part
+                        std::string instruction_part;
+                        std::getline(iss, instruction_part);
+
+                        // Trim leading whitespace
+                        if (!instruction_part.empty()) {
+                            size_t first_char = instruction_part.find_first_not_of(" \t\n\r\f\v");
+                            if (std::string::npos != first_char) {
+                                instruction_part = instruction_part.substr(first_char);
+                            }
+                        }
+
+                        // Ensure instructions are properly quoted
+                        if (instruction_part.length() < 2 || instruction_part.front() != '"' || instruction_part.back() != '"') {
+                            std::cout << "Instructions must be enclosed in double quotes." << std::endl;
+                            continue;
+                        }
+
+                        // Extract the content from between the quotes
+                        instructions = instruction_part.substr(1, instruction_part.length() - 2);
+
+                        // The shell requires inner quotes to be escaped (e.g., \").
+                        size_t pos = instructions.find("\\\"");
+                        while (pos != std::string::npos) {
+                            instructions.replace(pos, 2, "\"");
+                            pos = instructions.find("\\\"", pos + 1);
+                        }
 
                         // Validate memory size
                         if (memory_size < 64 || memory_size > 65536 || (memory_size & (memory_size - 1))) {

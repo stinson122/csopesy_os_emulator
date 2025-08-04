@@ -130,40 +130,47 @@ void Process::generateRandomInstructions() {
 
 // Helper function to process PRINT content and handle variable substitution
 std::string Process::processPrintContent(const std::string& content) const {
-    std::string result;
-    size_t i = 0;
-    bool in_quotes = false;
+    std::string final_result;
+    std::string current_token;
+    bool in_string_literal = false;
 
-    while (i < content.length()) {
-        if (content[i] == '"') {
-            in_quotes = !in_quotes;
-            i++;
+    // Iterate through the content character by character to parse it
+    for (char c : content) {
+        if (c == '"') {
+            in_string_literal = !in_string_literal;
+            // When we exit a string literal, we don't do anything else
+            // When we enter one, the characters will be added in the next loop iteration
             continue;
         }
 
-        if (!in_quotes && content[i] == '+') {
-            // Handle variable after +
-            i++;
-            // Skip whitespace
-            while (i < content.length() && isspace(content[i])) i++;
-
-            // Extract variable name
-            size_t var_start = i;
-            while (i < content.length() && (isalnum(content[i]) || content[i] == '_')) i++;
-            std::string var_name = content.substr(var_start, i - var_start);
-
-            // Get variable value
-            uint16_t value = getVariableValue(var_name);
-            result += std::to_string(value);
+        if (in_string_literal) {
+            // If we are inside a string literal, append the character directly
+            final_result += c;
         }
         else {
-            // Add character to result
-            result += content[i];
-            i++;
+            // If we are outside a string literal, we are dealing with operators or variables
+            if (isspace(c) || c == '+') {
+                // A delimiter (space or '+') means the end of the current token (a variable name)
+                if (!current_token.empty()) {
+                    // Look up the variable's value and append it to the result
+                    final_result += std::to_string(getVariableValue(current_token));
+                    current_token.clear(); // Reset for the next token
+                }
+                // We ignore the delimiter itself
+            }
+            else {
+                // The character is part of a variable name, so add it to the current token
+                current_token += c;
+            }
         }
     }
 
-    return result;
+    // After the loop, there might be a trailing variable name left in the token
+    if (!current_token.empty()) {
+        final_result += std::to_string(getVariableValue(current_token));
+    }
+
+    return final_result;
 }
 
 bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* memory_manager) {
