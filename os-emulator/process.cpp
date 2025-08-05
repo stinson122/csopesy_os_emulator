@@ -116,16 +116,39 @@ void Process::generateRandomInstructions() {
         case 6: // READ
             instr.type = "READ";
             instr.operands.push_back("var" + std::to_string(i % 10));
-            instr.operands.push_back("0x" + std::to_string((value_dist(gen) % (memory_size / 2)))); // Random address within bounds
+            // Generate valid memory address
+            instr.operands.push_back(generateValidMemoryAddress(gen));
             break;
         case 7: // WRITE
             instr.type = "WRITE";
-            instr.operands.push_back("0x" + std::to_string((value_dist(gen) % (memory_size / 2)))); // Random address within bounds
+            // Generate valid memory address and random value
+            instr.operands.push_back(generateValidMemoryAddress(gen));
             instr.operands.push_back(value_dist(gen)); // Random value
             break;
         }
         instructions.push_back(instr);
     }
+}
+
+// Helper function to generate a valid memory address as hex string
+std::string Process::generateValidMemoryAddress(std::mt19937& gen) {
+    const uint64_t min_addr = ((SYMBOL_TABLE_SIZE + sizeof(uint16_t) - 1) / sizeof(uint16_t)) * sizeof(uint16_t);
+    const uint64_t max_addr = (memory_size / sizeof(uint16_t) - 1) * sizeof(uint16_t);
+    
+    std::uniform_int_distribution<uint64_t> addr_dist(
+        min_addr / sizeof(uint16_t),
+        max_addr / sizeof(uint16_t)
+    );
+    uint64_t word_index = addr_dist(gen);
+    uint64_t addr = word_index * sizeof(uint16_t);
+    
+    if (addr >= memory_size) {
+        addr = max_addr; // go to last valid addr if out of bounds
+    }
+    
+    std::stringstream ss;
+    ss << "0x" << std::hex << addr;
+    return ss.str();
 }
 
 // Helper function to process PRINT content and handle variable substitution

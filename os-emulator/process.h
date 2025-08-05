@@ -11,6 +11,7 @@
 #include <variant>
 #include <functional>
 #include <sstream>
+#include <random>
 
 enum class ProcessState { Waiting, Running, Finished, Crashed };
 
@@ -96,6 +97,9 @@ private:
     void logMemoryViolation(uint64_t address, const std::string& operation);
     bool readMemory(uint64_t address, uint16_t& value);
     bool writeMemory(uint64_t address, uint16_t value);
+
+    // Helper function to generate a valid memory address as hex string
+    std::string generateValidMemoryAddress(std::mt19937& gen);
 
     // Helper function to process PRINT content with variable substitution
     std::string processPrintContent(const std::string& content) const;
