@@ -344,12 +344,12 @@ int main(int argc, char* argv[]) {
                         }
                     }
                     else if (flag == "-c") {
-                        // Read memory size and instructions for -c command
+                        // Read memory size and instructions for -c command, default to min-mem-per-proc
                         uint64_t memory_size;
                         std::string instructions;
                         if (!(iss >> memory_size)) {
-                            std::cout << "Missing memory size parameter. Usage: screen -c <name> <memory_size> \"<instructions>\"" << std::endl;
-                            continue;
+                            memory_size = static_cast<uint64_t>(scheduler->getMinMemPerProc());
+                            iss.clear();
                         }
 
                         // Read the rest of the command line to get the instruction part
