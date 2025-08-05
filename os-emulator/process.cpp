@@ -1,4 +1,5 @@
 #include "process.h"
+#include "memory_manager.h"
 #include <cstdint>
 #include <iomanip>
 #include <chrono>
@@ -7,14 +8,66 @@
 #include <algorithm>
 #include <iostream>
 
-Process::Process(const std::string& name, int total_instructions)
+// Helper function to convert string to unsigned long
+uint64_t Process::parseHexAddress(const std::string& hex_str) const {
+    try {
+        return std::stoul(hex_str, nullptr, 16);
+    }
+    catch (...) {
+        return 0;
+    }
+}
+
+//Get hh:mm:ss time
+std::string Process::getTimeStamp(const std::chrono::system_clock::time_point& tp) {
+    auto zt = std::chrono::zoned_time{ std::chrono::current_zone(),
+        std::chrono::time_point_cast<std::chrono::seconds>(tp) };
+    return std::format("{:%I:%M:%S%p}", zt);
+}
+
+// Check if a memory address is valid for this process
+bool Process::isValidMemoryAccess(uint64_t address) {
+    // Ensure address is within process memory bounds and properly aligned
+    if (address >= memory_size || (address % sizeof(uint16_t)) != 0) {
+        logMemoryViolation(address, "access");
+        return false;
+    }
+    return true;
+}
+
+// Log memory violation details
+void Process::logMemoryViolation(uint64_t address, const std::string& operation) {
+    memory_violation = true;
+    violation_info = "Memory violation at " + operation + " address: 0x" +
+        std::to_string(address) + " in process: " + name;
+}
+
+// Read from memory using memory manager
+bool Process::readMemory(uint64_t address, uint16_t& value) {
+    if (!memory_manager) return false;
+    if (!isValidMemoryAccess(address)) {
+        logMemoryViolation(address, "read");
+        return false;
+    }
+    return memory_manager->readMemory(this, address, value);
+}
+
+// Write to memory using memory manager
+bool Process::writeMemory(uint64_t address, uint16_t value) {
+    if (!memory_manager) return false;
+    if (!isValidMemoryAccess(address)) {
+        logMemoryViolation(address, "write");
+        return false;
+    }
+    return memory_manager->writeMemory(this, address, value);
+}
+
+Process::Process(const std::string& name, int total_instructions, uint64_t memory_size)
     : name(name), total_instructions(total_instructions),
     remaining_instructions(total_instructions),
-    state(ProcessState::Waiting), core_id(-1)
-    //start_time(std::chrono::system_clock::now()),
-    //log_file_name(name + ".log") 
+    state(ProcessState::Waiting), core_id(-1),
+    memory_size(memory_size)  // Initialize memory_size
 {
-    quantum_counter = 0;
     generateRandomInstructions();
 }
 
@@ -23,7 +76,7 @@ void Process::generateRandomInstructions() {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<uint16_t> value_dist(0, 100);
     std::uniform_int_distribution<uint16_t> value_dist_uint8(0, 100);
-    std::uniform_int_distribution<int> op_dist(0, 5);
+    std::uniform_int_distribution<int> op_dist(0, 7);
 
     for (int i = 0; i < total_instructions; i++) {
         Instruction instr;
@@ -35,104 +88,244 @@ void Process::generateRandomInstructions() {
         case 1: // DECLARE
             instr.type = "DECLARE";
             instr.operands.push_back("var" + std::to_string(i % 10));
-            instr.operands.push_back(value_dist(gen));
+            instr.operands.push_back(value_dist(gen)); // Already uint16_t
             break;
         case 2: // ADD
             instr.type = "ADD";
             instr.operands.push_back("var" + std::to_string(i % 10));
             instr.operands.push_back("var" + std::to_string((i + 1) % 10));
-            instr.operands.push_back(value_dist(gen));
+            instr.operands.push_back(value_dist(gen)); // Already uint16_t
             break;
         case 3: // SUBTRACT
             instr.type = "SUBTRACT";
             instr.operands.push_back("var" + std::to_string(i % 10));
             instr.operands.push_back("var" + std::to_string((i + 1) % 10));
-            instr.operands.push_back(value_dist(gen));
+            instr.operands.push_back(value_dist(gen)); // Already uint16_t
             break;
         case 4: // SLEEP
             instr.type = "SLEEP";
-            instr.operands.push_back(static_cast<uint8_t>(value_dist_uint8(gen) % 10 + 1));
+            // Cast to uint16_t to match variant type
+            instr.operands.push_back(static_cast<uint16_t>(
+                static_cast<uint8_t>(value_dist_uint8(gen) % 10 + 1)
+                ));
             break;
         case 5: // FOR
             instr.type = "FOR";
             instr.operands.push_back(static_cast<uint16_t>(3)); // Repeat count
-            // The next instruction will be treated as the loop body
+            break;
+        case 6: // READ
+            instr.type = "READ";
+            instr.operands.push_back("var" + std::to_string(i % 10));
+            // Generate valid memory address
+            instr.operands.push_back(generateValidMemoryAddress(gen));
+            break;
+        case 7: // WRITE
+            instr.type = "WRITE";
+            // Generate valid memory address and random value
+            instr.operands.push_back(generateValidMemoryAddress(gen));
+            instr.operands.push_back(value_dist(gen)); // Random value
             break;
         }
         instructions.push_back(instr);
     }
 }
 
-bool Process::executeNextInstruction(int core_id) {
+// Helper function to generate a valid memory address as hex string
+std::string Process::generateValidMemoryAddress(std::mt19937& gen) {
+    const uint64_t min_addr = ((SYMBOL_TABLE_SIZE + sizeof(uint16_t) - 1) / sizeof(uint16_t)) * sizeof(uint16_t);
+    const uint64_t max_addr = (memory_size / sizeof(uint16_t) - 1) * sizeof(uint16_t);
+    
+    std::uniform_int_distribution<uint64_t> addr_dist(
+        min_addr / sizeof(uint16_t),
+        max_addr / sizeof(uint16_t)
+    );
+    uint64_t word_index = addr_dist(gen);
+    uint64_t addr = word_index * sizeof(uint16_t);
+    
+    if (addr >= memory_size) {
+        addr = max_addr; // go to last valid addr if out of bounds
+    }
+    
+    std::stringstream ss;
+    ss << "0x" << std::hex << addr;
+    return ss.str();
+}
+
+// Helper function to process PRINT content and handle variable substitution
+std::string Process::processPrintContent(const std::string& content) const {
+    std::string final_result;
+    std::string current_token;
+    bool in_string_literal = false;
+
+    // Iterate through the content character by character to parse it
+    for (char c : content) {
+        if (c == '"') {
+            in_string_literal = !in_string_literal;
+            // When we exit a string literal, we don't do anything else
+            // When we enter one, the characters will be added in the next loop iteration
+            continue;
+        }
+
+        if (in_string_literal) {
+            // If we are inside a string literal, append the character directly
+            final_result += c;
+        }
+        else {
+            // If we are outside a string literal, we are dealing with operators or variables
+            if (isspace(c) || c == '+') {
+                // A delimiter (space or '+') means the end of the current token (a variable name)
+                if (!current_token.empty()) {
+                    // Look up the variable's value and append it to the result
+                    final_result += std::to_string(getVariableValue(current_token));
+                    current_token.clear(); // Reset for the next token
+                }
+                // We ignore the delimiter itself
+            }
+            else {
+                // The character is part of a variable name, so add it to the current token
+                current_token += c;
+            }
+        }
+    }
+
+    // After the loop, there might be a trailing variable name left in the token
+    if (!current_token.empty()) {
+        final_result += std::to_string(getVariableValue(current_token));
+    }
+
+    return final_result;
+}
+
+bool Process::executeNextInstruction(int core_id, DemandPagingMemoryManager* memory_manager) {
+    if (state == ProcessState::Crashed) {
+        return true;
+    }
+
+    if (current_instruction < instructions.size()) {
+        auto& instr = instructions[current_instruction];
+        std::string debug_msg = "Executing: " + instr.type;
+        for (auto& op : instr.operands) {
+            if (std::holds_alternative<std::string>(op)) {
+                debug_msg += " " + std::get<std::string>(op);
+            }
+            else {
+                debug_msg += " " + std::to_string(std::get<uint16_t>(op));
+            }
+        }
+        logPrint(debug_msg, core_id, std::chrono::system_clock::now());
+    }
+
+	if (memory_manager) {
+        this->memory_manager = memory_manager;
+    }
+
     if (current_instruction >= instructions.size()) {
         state = ProcessState::Finished;
         end_time = std::chrono::system_clock::now();
         return true;
     }
 
-    // Check if process is sleeping
     if (sleep_until > 0 && cpu_cycles < sleep_until) {
-        remaining_instructions--;  // Count sleep as an instruction
+        remaining_instructions--;
         return false;
     }
     else if (sleep_until > 0) {
-        sleep_until = 0;  // Wake up if sleep time has passed
+        sleep_until = 0;
     }
-	/*
-	else {
-        sleep_until = 0;  // Wake up if sleep time has passed
-    }*/
 
     auto& instr = instructions[current_instruction++];
+    bool sleep_triggered = false;
 
-    // note: best to test with only 1 process running, use screen -s
     auto executeInstruction = [&](const Instruction& instr) {
         if (instr.type == "PRINT") {
-            std::string message = std::get<std::string>(instr.operands[0]);
-            logPrint(message, core_id, std::chrono::system_clock::now());
+            try {
+                // Get the full content string (e.g., "\"Result: \" + varC")
+                std::string content = std::get<std::string>(instr.operands[0]);
+
+                // Use the robust helper function to parse it and substitute variables
+                std::string final_message = processPrintContent(content);
+
+                logPrint(final_message, core_id, std::chrono::system_clock::now());
+            }
+            catch (const std::bad_variant_access&) {
+                logPrint("PRINT ERROR: Invalid operand", core_id, std::chrono::system_clock::now());
+            }
         }
         else if (instr.type == "DECLARE") {
             std::string var = std::get<std::string>(instr.operands[0]);
             uint16_t value = std::get<uint16_t>(instr.operands[1]);
             declareVariable(var, value);
-            /*Temp Test Print
-            std::cout << "DECLARE" << std::endl;
-            std::cout << std::get<std::string>(instr.operands[0]) << "=" << std::get<std::uint16_t>(instr.operands[1]) << std::endl;
-            std::cout << var << "=" << value << std::endl;*/
         }
         else if (instr.type == "ADD") {
             std::string dest = std::get<std::string>(instr.operands[0]);
             uint16_t op1 = getOperandValue(instr.operands[1]);
             uint16_t op2 = getOperandValue(instr.operands[2]);
             declareVariable(dest, op1 + op2);
-            /*Temp Test Print
-            std::cout << "ADD" << std::endl;
-            std::cout << getOperandValue(instr.operands[1]) << "+" << getOperandValue(instr.operands[2]) << ":" << getOperandValue(instr.operands[0]) << std::endl;
-            std::cout << op1 << "+" << op2 << "=" << getOperandValue(instr.operands[0]) << std::endl;*/
         }
         else if (instr.type == "SUBTRACT") {
             std::string dest = std::get<std::string>(instr.operands[0]);
             uint16_t op1 = getOperandValue(instr.operands[1]);
             uint16_t op2 = getOperandValue(instr.operands[2]);
             declareVariable(dest, std::max(0, static_cast<int>(op1 - op2)));
-            /*Temp Test Print
-            std::cout << "SUB" << std::endl;
-            std::cout << getOperandValue(instr.operands[1]) << "-" << getOperandValue(instr.operands[2]) << ":" << getOperandValue(instr.operands[0]) << std::endl;
-            std::cout << op1 << "-" << op2 << "=" << getOperandValue(instr.operands[0]) << std::endl;*/
         }
         else if (instr.type == "SLEEP") {
             uint8_t ticks = static_cast<uint8_t>(std::get<uint16_t>(instr.operands[0]));
             sleep_until = cpu_cycles + ticks;
-            /*Temp Test Print
-            std::cout << "SLEEP for " << static_cast<int>(ticks) << std::endl;
-            return true; //true for sleep */
+            sleep_triggered = true;
         }
-        return false;
-    };
+        else if (instr.type == "READ") {
+            std::string var = std::get<std::string>(instr.operands[0]);
+            std::string addr_str = std::get<std::string>(instr.operands[1]);
+            uint64_t address = parseHexAddress(addr_str.substr(2)); // Remove "0x" prefix
+            uint16_t value = 0;
+
+            if (readMemory(address, value)) {
+                declareVariable(var, value);
+                // Debug output to verify successful read
+                logPrint("DEBUG: Read value " + std::to_string(value) + " from address " + addr_str +
+                    " into variable " + var, core_id, std::chrono::system_clock::now());
+            }
+            else {
+                memory_violation = true;
+                violation_info = "Memory read violation at address: " + addr_str + " at time: " + getTimeStamp(std::chrono::system_clock::now());
+                state = ProcessState::Crashed;
+            }
+        }
+        else if (instr.type == "WRITE") {
+            std::string addr_str = std::get<std::string>(instr.operands[0]);
+            uint16_t value = getOperandValue(instr.operands[1]);
+            uint64_t address = parseHexAddress(addr_str.substr(2));
+
+            // Ensure address is word-aligned and within valid range
+            if (address < SYMBOL_TABLE_SIZE) {
+                memory_violation = true;
+                violation_info = "Memory write violation: cannot write to protected symbol table area.";
+                state = ProcessState::Crashed;
+                return true;
+            }
+            else if (!isValidMemoryAccess(address)) {
+                memory_violation = true;
+                violation_info = "Memory write violation at address: " + addr_str + " at time: " + getTimeStamp(std::chrono::system_clock::now());
+                state = ProcessState::Crashed;
+                return true;
+            }
+            else if (!writeMemory(address, value)) {
+                memory_violation = true;
+                violation_info = "Memory write failed at address: " + addr_str + " at time: " + getTimeStamp(std::chrono::system_clock::now());
+                state = ProcessState::Crashed;
+                return true;
+            }
+            else {
+                logPrint("DEBUG: Wrote value " + std::to_string(value) + " to address " + addr_str,
+                    core_id, std::chrono::system_clock::now());
+            }
+        }
+        return sleep_triggered;
+        };
 
     try {
         if (executeInstruction(instr)) {
-            return false; // stop if sleep
+            return false;
         }
 
         if (instr.type == "FOR") {
@@ -141,12 +334,10 @@ bool Process::executeNextInstruction(int core_id) {
             for (uint16_t i = 0; i < repeats; i++) {
                 current_instruction = loop_start;
                 if (current_instruction >= instructions.size()) break;
-                /*Temp Test Print
-                std::cout << "FOR " << (i+1) << ": " << instructions[current_instruction++].type << std::endl;*/
 
                 auto& nested_instr = instructions[current_instruction++];
                 if (executeInstruction(nested_instr)) {
-                    break; // exit if sleep
+                    break;
                 }
             }
         }
@@ -159,38 +350,198 @@ bool Process::executeNextInstruction(int core_id) {
     return false;
 }
 
+void Process::parseCustomInstructions(const std::string& instruction_str) {
+    // Clear existing instructions
+    instructions.clear();
+    remaining_instructions = 0;
+    total_instructions = 0;
+
+    std::vector<std::string> instruction_list;
+    size_t start = 0;
+    size_t end = instruction_str.find(';');
+
+    // Split by semicolons
+    while (end != std::string::npos) {
+        instruction_list.push_back(instruction_str.substr(start, end - start));
+        start = end + 1;
+        end = instruction_str.find(';', start);
+    }
+    // Add the last instruction
+    if (start < instruction_str.length()) {
+        instruction_list.push_back(instruction_str.substr(start));
+    }
+
+    // Validate instruction count
+    if (instruction_list.empty() || instruction_list.size() > 50) {
+        throw std::runtime_error("Invalid instruction count (must be 1-50)");
+    }
+
+    // Parse each instruction
+    for (auto& instr_str : instruction_list) {
+        // Trim whitespace
+        instr_str.erase(0, instr_str.find_first_not_of(" \t\n\r\f\v"));
+        instr_str.erase(instr_str.find_last_not_of(" \t\n\r\f\v") + 1);
+        if (instr_str.empty()) continue;
+
+        Instruction instr;
+
+        // Special handling for PRINT instructions
+        if (instr_str.find("PRINT") == 0) {
+            instr.type = "PRINT";
+            size_t content_start = instr_str.find_first_of("(\"");
+
+            if (content_start != std::string::npos) {
+                // Find matching closing character
+                char open_char = instr_str[content_start];
+                char close_char = (open_char == '(') ? ')' : '"';
+                size_t content_end = instr_str.find_last_of(close_char);
+
+                if (content_end != std::string::npos && content_end > content_start) {
+                    std::string content = instr_str.substr(
+                        content_start + 1,
+                        content_end - content_start - 1
+                    );
+                    // Trim whitespace
+                    content.erase(0, content.find_first_not_of(" \t\n\r\f\v"));
+                    content.erase(content.find_last_not_of(" \t\n\r\f\v") + 1);
+                    instr.operands.push_back(content);
+                }
+                else {
+                    // If no closing character, take everything after opening
+                    std::string content = instr_str.substr(content_start + 1);
+                    content.erase(0, content.find_first_not_of(" \t\n\r\f\v"));
+                    instr.operands.push_back(content);
+                }
+            }
+            else {
+                // Simple PRINT without parentheses/quotes
+                std::string content = instr_str.substr(5); // Skip "PRINT"
+                content.erase(0, content.find_first_not_of(" \t\n\r\f\v"));
+                instr.operands.push_back(content);
+            }
+        }
+        else {
+            // Regular instruction parsing
+            std::istringstream iss(instr_str);
+            std::string token;
+            iss >> instr.type;
+            std::transform(instr.type.begin(), instr.type.end(), instr.type.begin(), ::toupper);
+
+            // Parse operands based on instruction type
+            if (instr.type == "DECLARE") {
+                std::string var_name;
+                uint16_t value;
+                if (iss >> var_name >> value) {
+                    instr.operands.push_back(var_name);
+                    instr.operands.push_back(value);
+                }
+                else {
+                    throw std::runtime_error("Invalid DECLARE instruction: " + instr_str);
+                }
+            }
+            else if (instr.type == "ADD" || instr.type == "SUBTRACT") {
+                std::string dest, op1, op2;
+                if (iss >> dest >> op1 >> op2) {
+                    instr.operands.push_back(dest);
+                    instr.operands.push_back(op1);
+                    instr.operands.push_back(op2);
+                }
+                else {
+                    throw std::runtime_error("Invalid " + instr.type + " instruction: " + instr_str);
+                }
+            }
+            else if (instr.type == "SLEEP") {
+                uint16_t ticks;
+                if (iss >> ticks) {
+                    instr.operands.push_back(ticks);
+                }
+                else {
+                    throw std::runtime_error("Invalid SLEEP instruction: " + instr_str);
+                }
+            }
+            else if (instr.type == "READ") {
+                std::string var_name, addr_str;
+                if (iss >> var_name >> addr_str) {
+                    instr.operands.push_back(var_name);
+                    instr.operands.push_back(addr_str);
+                }
+                else {
+                    throw std::runtime_error("Invalid READ instruction: " + instr_str);
+                }
+            }
+            else if (instr.type == "WRITE") {
+                std::string addr_str;
+                std::string value_str;
+                if (iss >> addr_str >> value_str) {
+                    instr.operands.push_back(addr_str);
+
+                    // Check if value is a variable or number
+                    try {
+                        uint16_t value = std::stoul(value_str);
+                        instr.operands.push_back(value);
+                    }
+                    catch (...) {
+                        // If not a number, treat as variable name
+                        instr.operands.push_back(value_str);
+                    }
+                }
+                else {
+                    throw std::runtime_error("Invalid WRITE instruction: " + instr_str);
+                }
+            }
+            else {
+                throw std::runtime_error("Unknown instruction type: " + instr.type);
+            }
+        }
+
+        instructions.push_back(instr);
+        total_instructions++;
+        remaining_instructions++;
+    }
+}
+
 uint16_t Process::getOperandValue(const Value& operand) const {
     if (std::holds_alternative<uint16_t>(operand)) {
         return std::get<uint16_t>(operand);
     }
-    std::string var = std::get<std::string>(operand);
-    auto it = variables.find(var);
-    return it != variables.end() ? it->second : 0;
+    else if (std::holds_alternative<std::string>(operand)) {
+        std::string var = std::get<std::string>(operand);
+        return getVariableValue(var);
+    }
+    return 0;
 }
 
 void Process::declareVariable(const std::string& name, uint16_t value) {
-    variables[name] = std::min(value, static_cast<uint16_t>(65535));
-    /*Temp Test Print
-    std::cout << "Variable declared to: " << name << "=" << value << std::endl;*/
+    // Calculate address in symbol table
+    uint64_t address = symbol_table_used;
+
+    // Check if we have space in symbol table
+    if (address + sizeof(uint16_t) > SYMBOL_TABLE_SIZE) {
+        memory_violation = true;
+        violation_info = "Symbol table full for variable: " + name;
+        return;
+    }
+
+    // Store variable in memory
+    if (!writeMemory(address, value)) {
+        memory_violation = true;
+        violation_info = "Failed to declare variable: " + name;
+        return;
+    }
+
+    // Update symbol table usage
+    symbol_table_used += sizeof(uint16_t);
+    variables[name] = value;  // Keep local cache for faster access
 }
 
 uint16_t Process::getVariableValue(const std::string& name) const {
     auto it = variables.find(name);
-    return it != variables.end() ? it->second : 0;
-}
-/*
-Process::~Process() {
-    if (log_file.is_open()) {
-        log_file.close();
+    if (it != variables.end()) {
+        return it->second;
     }
+    return 0; // Return 0 if variable not found
 }
 
-void Process::openLogFile() {
-    if (!log_file.is_open()) {
-        log_file.open(log_file_name, std::ios::app);
-    }
-}
-*/
 void Process::logPrint(const std::string& message, int core,
     const std::chrono::system_clock::time_point& time)
 {
@@ -200,16 +551,14 @@ void Process::logPrint(const std::string& message, int core,
     std::string log_line = "(" + std::format("{:%m/%d/%Y %I:%M:%S%p}", zt) +
         ") Core:" + std::to_string(core) + " \"" + message + "\"\n";
 
-    // Store in vector instead of writing to file
     log_messages.push_back(log_line);
 
-    // Preserve callback functionality
     if (log_callback) {
         log_callback(log_line);
     }
 }
 
 std::vector<std::string> Process::getLogMessages() {
-	std::lock_guard<std::mutex> lock(log_mutex);
-	return log_messages;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    return log_messages;
 }

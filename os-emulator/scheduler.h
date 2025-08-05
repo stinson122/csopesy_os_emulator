@@ -1,6 +1,7 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
+#include "memory_manager.h"
 #include "process.h"
 #include <thread>
 #include <mutex>
@@ -16,7 +17,7 @@
 
 class Scheduler {
 public:
-    Scheduler(int num_cores);
+    Scheduler(int num_cores, uint64_t total_mem, uint64_t frame_size, uint64_t min_mem_per_proc, uint64_t max_mem_per_proc);
     ~Scheduler();
 
     void start();
@@ -30,7 +31,6 @@ public:
 
     static std::string formatTimePoint(const std::chrono::system_clock::time_point& tp);
 
-    // Configuration methods
     void setSchedulerType(const std::string& type) { scheduler_type = type; }
     void setQuantumCycles(uint64_t quantum) { quantum_cycles = quantum; }
     void setMinInstructions(uint64_t min) { min_instructions = min; }
@@ -38,10 +38,12 @@ public:
     void setBatchFrequency(uint64_t freq) { batch_frequency = freq; }
     void setDelay(uint64_t delay) { delay_per_exec = delay; }
 
-    // Add getter methods for private members
     uint64_t getQuantumCycles() const { return quantum_cycles; }
     uint64_t getMinInstructions() const { return min_instructions; }
     uint64_t getMaxInstructions() const { return max_instructions; }
+    uint64_t getMinMemPerProc() const { return min_mem_per_proc; }
+    uint64_t getMaxMemPerProc() const { return max_mem_per_proc; }
+    DemandPagingMemoryManager& getMemoryManager() { return memory_manager; }
 
     void startBatchProcess();
     void stopBatchProcess();
@@ -58,6 +60,9 @@ private:
     std::mutex all_processes_mutex;
     std::map<std::string, Process*> all_processes;
 
+    DemandPagingMemoryManager memory_manager;
+    std::atomic<uint64_t> current_quantum{ 0 };
+
     std::thread scheduler_thread;
     std::vector<std::thread> workers;
     std::atomic<bool> stop_requested;
@@ -73,11 +78,14 @@ private:
     uint64_t min_instructions = 1;
     uint64_t max_instructions = 2000;
     uint64_t delay_per_exec = 100;
+    uint64_t min_mem_per_proc;
+    uint64_t max_mem_per_proc;
     std::atomic<int> process_counter{ 1 };
 
     void schedule();
     void worker(int core_id);
     void batchWorker();
+    bool isProcessMemoryAllocated(Process* process);  // New method to check memory allocation
 };
 
 #endif // SCHEDULER_H

@@ -10,32 +10,53 @@
 #include <map>
 #include <variant>
 #include <functional>
+#include <sstream>
+#include <random>
 
-enum class ProcessState { Waiting, Running, Finished };
+enum class ProcessState { Waiting, Running, Finished, Crashed };
 
-using Value = std::variant<uint16_t, std::string>;
+using Value = std::variant<uint16_t, std::string, uint64_t>; // Added uint64_t for memory addresses
 
 extern std::atomic<uint64_t> cpu_cycles;
 extern std::atomic<uint64_t> quantum_counter;
 
+// Forward declaration
+class DemandPagingMemoryManager;
+
 class Process {
 public:
-    Process(const std::string& name, int total_instructions);
+    Process(const std::string& name, int total_instructions, uint64_t memory_size = 0);
+
     //~Process();
+
+    static std::string getTimeStamp(const std::chrono::system_clock::time_point& tp);
 
     void logPrint(const std::string& message, int core,
         const std::chrono::system_clock::time_point& time);
     std::vector<std::string> getLogMessages();
 
     // Instruction execution
-    bool executeNextInstruction(int core_id);
+    bool executeNextInstruction(int core_id, DemandPagingMemoryManager* memory_manager = nullptr);
     void generateRandomInstructions();
+    void parseCustomInstructions(const std::string& instruction_str);
 
     // Variable operations
     void declareVariable(const std::string& name, uint16_t value);
     uint16_t getVariableValue(const std::string& name) const;
     uint64_t getSleepUntil() const { return sleep_until.load(); }
     bool isSleeping() const { return sleep_until > 0 && cpu_cycles < sleep_until; }
+
+    // Memory operations
+    void setMemoryManager(DemandPagingMemoryManager* manager) { memory_manager = manager; }
+    uint64_t getMemorySize() const { return memory_size; }
+    bool hasMemoryViolation() const { return memory_violation; }
+
+    //memory management
+    bool memory_violation = false;
+    std::string violation_info;
+
+    std::string getMemoryViolationInfo() const { return violation_info; }
+    std::atomic<bool> memory_wait_logged{ false }; // Add this line
 
     std::string name;
     int total_instructions;
@@ -44,7 +65,10 @@ public:
     std::atomic<int> core_id;
     std::chrono::system_clock::time_point start_time;
     std::chrono::system_clock::time_point end_time;
+    std::chrono::system_clock::time_point crash_time;
     std::function<void(const std::string&)> log_callback;
+    uint64_t memory_start = 0;
+    uint64_t memory_end = 0;
 
 private:
     struct Instruction {
@@ -61,7 +85,24 @@ private:
     std::atomic<size_t> current_instruction{ 0 };
     std::atomic<uint64_t> sleep_until{ 0 };
 
-    //void openLogFile();
+    // Memory management
+    uint64_t memory_size;
+    DemandPagingMemoryManager* memory_manager = nullptr;
+    static const uint64_t SYMBOL_TABLE_SIZE = 64; // 64 bytes for symbol table
+    uint64_t symbol_table_used = 0; // Track used bytes in symbol table
+
     uint16_t getOperandValue(const Value& operand) const;
+    uint64_t parseHexAddress(const std::string& hex_str) const;
+    bool isValidMemoryAccess(uint64_t address);
+    void logMemoryViolation(uint64_t address, const std::string& operation);
+    bool readMemory(uint64_t address, uint16_t& value);
+    bool writeMemory(uint64_t address, uint16_t value);
+
+    // Helper function to generate a valid memory address as hex string
+    std::string generateValidMemoryAddress(std::mt19937& gen);
+
+    // Helper function to process PRINT content with variable substitution
+    std::string processPrintContent(const std::string& content) const;
 };
+
 #endif // PROCESS_H

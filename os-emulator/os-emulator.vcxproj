@@ -132,6 +132,7 @@
     <ClCompile Include="main.cpp">
       <LanguageStandard Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">stdcpp20</LanguageStandard>
     </ClCompile>
+    <ClCompile Include="memory_manager.cpp" />
     <ClCompile Include="process.cpp" />
     <ClCompile Include="scheduler.cpp" />
   </ItemGroup>
@@ -143,6 +144,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="header.h" />
+    <ClInclude Include="memory_manager.h" />
     <ClInclude Include="process.h" />
     <ClInclude Include="scheduler.h" />
   </ItemGroup>

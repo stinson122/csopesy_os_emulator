@@ -32,6 +32,10 @@ struct Config {
     uint64_t min_instructions = 1;
     uint64_t max_instructions = 2000;
     uint64_t delay_per_exec = 100;
+    uint64_t max_overall_mem = 16384;
+    uint64_t mem_per_frame = 16;
+    uint64_t min_mem_per_proc = 2048;
+    uint64_t max_mem_per_proc = 8192;
 };
 
 Config readConfig(const std::string& filename, const std::filesystem::path& exe_dir) {
@@ -51,9 +55,7 @@ Config readConfig(const std::string& filename, const std::filesystem::path& exe_
         }
     }
 
-    // ADD THIS LINE: Declare the 'line' variable
-    std::string line;  // <-- This is the missing declaration
-    // Read the config file line by line
+    std::string line; // Read the config file line by line
 
     while (std::getline(file, line)) {
         std::istringstream iss(line);
@@ -89,33 +91,27 @@ Config readConfig(const std::string& filename, const std::filesystem::path& exe_
         else if (key == "delay-per-exec") {
             iss >> config.delay_per_exec;
         }
+        else if (key == "max-overall-mem") {
+            iss >> config.max_overall_mem;
+        }
+        else if (key == "mem-per-frame") {
+            iss >> config.mem_per_frame;
+        }
+        else if (key == "min-mem-per-proc") {
+            iss >> config.min_mem_per_proc;
+        }
+        else if (key == "max-mem-per-proc") {
+            iss >> config.max_mem_per_proc;
+        }
     }
 
     return config;
 }
-/*
-void processSMI(Process* p) {
-    if (!p) return;
-
-    std::cout << "Process: " << p->name << std::endl;
-    int remaining = p->remaining_instructions.load();
-    std::cout << "Instructions: " << (p->total_instructions - remaining)
-        << "/" << p->total_instructions << std::endl;
-    std::cout << "Status: "
-        << (p->state == ProcessState::Finished ? "Finished" :
-            p->state == ProcessState::Running ? "Running" : "Waiting")
-        << std::endl;
-
-    if (p->state == ProcessState::Finished) {
-        std::cout << "Finished!" << std::endl;
-    }
-}*/
 
 void processSMI(Process* p) {
     if (!p) return;
 
     std::cout << "Process name: " << p->name << std::endl;
-    //std::cout << "ID: " << p->core_id << std::endl;
     std::cout << "Logs:" << std::endl;
 
     // Print log messages
@@ -188,6 +184,23 @@ void drawScreen(std::string processName) {
         int remaining = p->remaining_instructions.load();
         std::cout << "Instruction: " << (p->total_instructions - remaining)
             << "/" << p->total_instructions << std::endl;
+        if (p->state == ProcessState::Crashed && p->memory_violation) {
+            size_t addr_pos = p->violation_info.find("address: ");
+            size_t time_pos = p->violation_info.find("at time: ");
+            if (addr_pos != std::string::npos and time_pos != std::string::npos) { //if address found
+                std::istringstream iss(p->violation_info.substr(addr_pos + 9));
+                std::string address;
+                iss >> address;
+                std::istringstream iss_time(p->violation_info.substr(time_pos + 9));
+                std::string time;
+                iss_time >> time;
+                std::cout << "Process " << p->name << " shut down due to memory access violation error that occurred at " << time << ". " 
+                          << address << " invalid. " << std::endl << p->violation_info << std::endl;
+            } else {
+                std::cout << "Process " << p->name << " shut down due to memory access violation error."  << std::endl
+                          << p->violation_info << std::endl;
+            }
+        }
     }
     std::cout << "TimeStamp: " << Scheduler::formatTimePoint(std::chrono::system_clock::now()) << std::endl;
 
@@ -204,6 +217,7 @@ void drawScreen(std::string processName) {
         }
         else if (command == "process-smi") {
             if (p) {
+                //scheduler->getMemoryManager().generateProcessSMI();
                 processSMI(p);
             }
             else {
@@ -225,15 +239,6 @@ int main(int argc, char* argv[]) {
     if (argc > 0) {
         exe_dir = std::filesystem::path(argv[0]).parent_path();
     }
-    /*
-    // Start CPU cycle counter thread
-    std::thread cycle_counter([]() {
-        while (true) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            cpu_cycles++;
-        }
-        });
-    */
 
     std::thread cycle_counter([]() {
         auto last_time = std::chrono::steady_clock::now();
@@ -272,7 +277,8 @@ int main(int argc, char* argv[]) {
             else {
                 // Pass executable directory to readConfig
                 Config config = readConfig("config.txt", exe_dir);
-                scheduler = new Scheduler(config.num_cpu);
+                scheduler = new Scheduler(config.num_cpu, config.max_overall_mem,
+                    config.mem_per_frame, config.min_mem_per_proc, config.max_mem_per_proc);
                 scheduler->setSchedulerType(config.scheduler_type);
                 scheduler->setQuantumCycles(config.quantum_cycles);
                 scheduler->setMinInstructions(config.min_instructions);
@@ -301,11 +307,24 @@ int main(int argc, char* argv[]) {
             }
             else {
                 iss >> processName;
-                if ((flag == "-s" || flag == "-r") && !processName.empty()) {
+                if ((flag == "-s" || flag == "-c" || flag == "-r") && !processName.empty()) {
                     Process* existingProcess = scheduler->getProcess(processName);
 
                     if (flag == "-s") {
-                        // Create new process only if it doesn't exist
+                        // Read memory size for -s command
+                        uint64_t memory_size;
+                        if (!(iss >> memory_size)) {
+                            std::cout << "Missing memory size parameter. Usage: screen -s <name> <memory_size>" << std::endl;
+                            continue;
+                        }
+
+                        // Validate memory size
+                        if (memory_size < 64 || memory_size > 65536 || (memory_size & (memory_size - 1))) {
+                            std::cout << "Invalid memory allocation. Must be power of 2 between 64 and 65536 bytes." << std::endl;
+                            continue;
+                        }
+
+                        Process* existingProcess = scheduler->getProcess(processName);
                         if (!existingProcess) {
                             std::random_device rd;
                             std::mt19937 gen(rd());
@@ -314,13 +333,81 @@ int main(int argc, char* argv[]) {
                                 scheduler->getMaxInstructions()
                             );
                             uint64_t instructions = dist(gen);
-                            Process* p = new Process(processName, instructions);
+
+                            Process* p = new Process(processName, instructions, memory_size);
                             scheduler->addProcess(p);
-                            std::cout << "Created new process: " << processName << std::endl;
+                            std::cout << "Created new process: " << processName << " with " << memory_size << " bytes memory" << std::endl;
                         }
                         else {
-                            std::cout << "Process " << processName << " already exists." << std::endl; continue;
+                            std::cout << "Process " << processName << " already exists." << std::endl;
+                            continue;
                         }
+                    }
+                    else if (flag == "-c") {
+                        // Read memory size and instructions for -c command, default to min-mem-per-proc
+                        uint64_t memory_size;
+                        std::string instructions;
+                        if (!(iss >> memory_size)) {
+                            memory_size = static_cast<uint64_t>(scheduler->getMinMemPerProc());
+                            iss.clear();
+                        }
+
+                        // Read the rest of the command line to get the instruction part
+                        std::string instruction_part;
+                        std::getline(iss, instruction_part);
+
+                        // Trim leading whitespace
+                        if (!instruction_part.empty()) {
+                            size_t first_char = instruction_part.find_first_not_of(" \t\n\r\f\v");
+                            if (std::string::npos != first_char) {
+                                instruction_part = instruction_part.substr(first_char);
+                            }
+                        }
+
+                        // Ensure instructions are properly quoted
+                        if (instruction_part.length() < 2 || instruction_part.front() != '"' || instruction_part.back() != '"') {
+                            std::cout << "Instructions must be enclosed in double quotes." << std::endl;
+                            continue;
+                        }
+
+                        // Extract the content from between the quotes
+                        instructions = instruction_part.substr(1, instruction_part.length() - 2);
+
+                        // The shell requires inner quotes to be escaped (e.g., \").
+                        size_t pos = instructions.find("\\\"");
+                        while (pos != std::string::npos) {
+                            instructions.replace(pos, 2, "\"");
+                            pos = instructions.find("\\\"", pos + 1);
+                        }
+
+                        // Validate memory size
+                        if (memory_size < 64 || memory_size > 65536 || (memory_size & (memory_size - 1))) {
+                            std::cout << "Invalid memory allocation. Must be power of 2 between 64 and 65536 bytes." << std::endl;
+                            continue;
+                        }
+
+                        Process* existingProcess = scheduler->getProcess(processName);
+                        if (!existingProcess) {
+                            try {
+                                Process* p = new Process(processName, 0, memory_size); // 0 instructions initially
+                                p->parseCustomInstructions(instructions); // This will set the actual instructions
+                                scheduler->addProcess(p);
+                                std::cout << "Created new process: " << processName << " with " << memory_size
+                                    << " bytes memory and custom instructions" << std::endl;
+                            }
+                            catch (const std::exception& e) {
+                                std::cout << "Error creating process: " << e.what() << std::endl;
+                                continue;
+                            }
+                        }
+                        else {
+                            std::cout << "Process " << processName << " already exists." << std::endl;
+                            continue;
+                        }
+
+                        clearScreen();
+                        std::cout << "Displaying process: " << processName << std::endl;
+                        drawScreen(processName);
                     }
                     else if (flag == "-r") {
                         // For -r, only attach if process exists and is not finished
@@ -332,11 +419,11 @@ int main(int argc, char* argv[]) {
 
                     clearScreen();
                     std::cout << "Displaying process: " << processName << std::endl;
-                    
+
                     if (flag == "-s") {
                         drawScreen(processName);
-                    } else if (flag == "-r") {
-                        //viewProcessScreen(processName);
+                    }
+                    else if (flag == "-r") {
                         drawScreen(processName);
                     }
                 }
@@ -370,6 +457,20 @@ int main(int argc, char* argv[]) {
             else {
                 scheduler->printStatus(true);
                 std::cout << "Report saved to csopesy-log.txt" << std::endl;
+            }
+        }
+        else if (command == "process-smi") {
+            if (!initialized) {
+                std::cout << "Please run 'initialize' first." << std::endl;
+            } else {
+                scheduler->getMemoryManager().generateProcessSMI();
+            }
+        }
+        else if (command == "vmstat") {
+            if (!initialized) {
+                std::cout << "Please run 'initialize' first." << std::endl;
+            } else {
+                scheduler->getMemoryManager().generateVMStat();
             }
         }
         else {
