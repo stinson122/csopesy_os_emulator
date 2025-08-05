@@ -44,17 +44,6 @@ bool DemandPagingMemoryManager::allocateProcess(Process* process, uint64_t requi
         return true; // Already allocated
     }
 
-    // Calculate total virtual memory already allocated
-    uint64_t total_allocated = 0;
-    for (const auto& pair : process_memory_sizes) {
-        total_allocated += pair.second;
-    }
-
-    // Check if adding this process would exceed physical memory
-    if (total_allocated + required_memory > total_memory) {
-        return false;
-    }
-
     // Check if memory is power of 2 and within range [2^6, 2^16]
     if (required_memory & (required_memory - 1)) return false; // Not power of 2
     if (required_memory < 64 || required_memory > 65536) return false; // Not in range

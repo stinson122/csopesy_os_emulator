@@ -11,6 +11,7 @@
 #include <atomic>
 #include <iomanip>
 #include <iostream>
+#include <stdint.h>
 
 class Process; // Forward declaration
 
