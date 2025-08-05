@@ -14,6 +14,9 @@
 
 class Process; // Forward declaration
 
+// Add external reference to cpu_cycles
+extern std::atomic<uint64_t> cpu_cycles;
+
 struct Page {
     uint64_t page_number;
     uint64_t virtual_address;
@@ -45,7 +48,7 @@ public:
     // Memory allocation and deallocation
     bool allocateProcess(Process* process, uint64_t required_memory);
     void deallocateProcess(Process* process);
-    bool isProcessAllocated(Process* process) const;  // New method to check allocation
+    bool isProcessAllocated(Process* process) const;
 
     // Memory access operations
     bool readMemory(Process* process, uint64_t virtual_address, uint16_t& value);
@@ -79,6 +82,9 @@ public:
     // Validation
     bool isValidAddress(Process* process, uint64_t virtual_address);
 
+    // Add CPU tick tracking
+    void setScheduler(class Scheduler* sched) { scheduler = sched; }
+
 private:
     uint64_t total_memory;
     uint64_t frame_size;
@@ -95,6 +101,9 @@ private:
 
     mutable std::mutex memory_mutex;
     std::string backing_store_file = "csopesy-backing-store.txt";
+
+    // Add scheduler reference for CPU tick tracking
+    class Scheduler* scheduler = nullptr;
 
     // Helper functions
     uint64_t getPageNumber(uint64_t virtual_address) { return virtual_address / frame_size; }

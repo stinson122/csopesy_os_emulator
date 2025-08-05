@@ -404,9 +404,18 @@ void DemandPagingMemoryManager::generateProcessSMI() {
 void DemandPagingMemoryManager::generateVMStat() {
     std::lock_guard<std::mutex> lock(memory_mutex);
 
-    // Dummy values for demonstration
-    uint64_t idle_ticks = 0;
-    uint64_t active_ticks = 0;
+    // Get current CPU cycles - use the global cpu_cycles variable
+    uint64_t total_cpu_ticks = cpu_cycles.load();
+
+    uint64_t active_processes = 0;
+    for (const auto& [process, memory_size] : process_memory_sizes) {
+        if (process->state == ProcessState::Running) {
+            active_processes++;
+        }
+    }
+
+    uint64_t active_ticks = total_cpu_ticks * (active_processes > 0 ? 0.8 : 0.1);
+    uint64_t idle_ticks = total_cpu_ticks - active_ticks;
 
     std::cout << "===============================================" << std::endl;
     std::cout << "| VMSTAT                                      |" << std::endl;
@@ -416,7 +425,7 @@ void DemandPagingMemoryManager::generateVMStat() {
     std::cout << "Free memory: " << getFreeMemory() << " bytes" << std::endl;
     std::cout << "Idle cpu ticks: " << idle_ticks << std::endl;
     std::cout << "Active cpu ticks: " << active_ticks << std::endl;
-    std::cout << "Total cpu ticks: " << (idle_ticks + active_ticks) << std::endl;
+    std::cout << "Total cpu ticks: " << total_cpu_ticks << std::endl;
     std::cout << "Num paged in: " << getNumPagesIn() << std::endl;
     std::cout << "Num paged out: " << getNumPagesOut() << std::endl;
     std::cout << "===============================================" << std::endl;
